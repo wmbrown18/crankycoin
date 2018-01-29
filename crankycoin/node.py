@@ -1,9 +1,9 @@
 import grequests
-import requests
 from klein import Klein
-from multiprocessing import Process
-from Queue import Empty, Full
+import multiprocessing as mp
+import requests
 
+from mempool import *
 from blockchain import *
 from transaction import *
 
@@ -20,6 +20,7 @@ class NodeMixin(object):
     BALANCE_URL = config['network']['balance_url']
     DNS_SEEDS = config['network']['dns_seeds']
     SEED_NODES = config['network']['seed_nodes']
+    MAX_TRANSACTIONS_PER_BLOCK = config['network']['max_transactions_per_block']
 
     full_nodes = set(SEED_NODES)
 
@@ -80,11 +81,15 @@ class FullNode(NodeMixin):
     app = Klein()
 
     def __init__(self, host, reward_address, **kwargs):
+        mp.log_to_stderr()
+        mp_logger = mp.get_logger()
+        mp_logger.setLevel(logging.DEBUG)
         self.host = host
         self.request_nodes_from_all()
         self.reward_address = reward_address
         self.broadcast_node(host)
         self.full_nodes.add(host)
+        self.mempool = Mempool()
 
         block_path = kwargs.get("block_path")
         if block_path is None:
@@ -92,26 +97,23 @@ class FullNode(NodeMixin):
         else:
             self.load_blockchain(block_path)
 
+        logger.debug("full node server starting on %s with reward address of %s...", host, reward_address)
+        self.node_process = mp.Process(target=self.app.run, args=(host, self.FULL_NODE_PORT))
+        self.node_process.start()
+        logger.debug("full node server started on %s with reward address of %s...", host, reward_address)
         mining = kwargs.get("mining")
         if mining is True:
             self.NODE_TYPE = "miner"
-            self.mining_process = Process(target=self.mine)
+            self.mining_process = mp.Process(target=self.mine)
             self.mining_process.start()
             logger.debug("mining node started on %s with reward address of %s...", host, reward_address)
-        logger.debug("full node server starting on %s with reward address of %s...", host, reward_address)
-        self.node_process = Process(target=self.app.run, args=(host, self.FULL_NODE_PORT))
-        self.node_process.start()
-        logger.debug("full node server started on %s with reward address of %s...", host, reward_address)
 
     def shutdown(self, force=False):
-        self.blockchain.unconfirmed_transactions.close()
         if force is True:
-            self.blockchain.unconfirmed_transactions.cancel_join_thread()
             if self.NODE_TYPE == "miner":
                 self.mining_process.terminate()
             self.node_process.terminate()
         else:
-            self.blockchain.unconfirmed_transactions.join_thread()
             if self.NODE_TYPE == "miner":
                 self.mining_process.join(1)
             self.node_process.join(1)
@@ -185,10 +187,9 @@ class FullNode(NodeMixin):
                     if block.current_hash != block_dict['current_hash']:
                         raise InvalidHash(block.index, "Block Hash Mismatch: {}".format(block_dict['current_hash']))
                     blocks.append(block)
-                return blocks
         except requests.exceptions.RequestException as re:
             pass
-        return None
+        return blocks
 
     def request_blockchain(self, node, port):
         url = self.BLOCKS_URL.format(node, port)
@@ -223,27 +224,52 @@ class FullNode(NodeMixin):
     def mine(self):
         logger.debug("mining node starting on %s with reward address of %s...", self.host, self.reward_address)
         while True:
-            latest_block = self.blockchain.get_latest_block()
-            latest_hash = latest_block.current_hash
-            latest_index = latest_block.index
-
-            block = self.blockchain.mine_block(self.reward_address)
+            block = self.mine_block(self.reward_address)
             if not block:
                 continue
+            self.blockchain.add_block(block, validate=False)
             statuses = self.broadcast_block(block)
-            if statuses['expirations'] > statuses['confirmations'] or \
-                    statuses['invalidations'] > statuses['confirmations']:
-                self.synchronize()
-                new_latest_block = self.blockchain.get_latest_block()
-                if latest_hash != new_latest_block.current_hash or \
-                        latest_index != new_latest_block.index:
-                    # latest_block changed after sync.. don't add the block.
-                    self.blockchain.recycle_transactions(block)
-                    continue
-            self.blockchain.add_block(block)
+            logger.info("Block {} found with hash {} and nonce {}".format(block.index, block.current_hash, block.block_header.nonce))
+            logger.debug(statuses)
+
+    def mine_block(self, reward_address):
+        #TODO add transaction fees
+        latest_block = self.blockchain.get_latest_block()
+        new_block_id = latest_block.index + 1
+        previous_hash = latest_block.current_hash
+
+        transactions = self.mempool.get_unconfirmed_transactions_chunk(self.MAX_TRANSACTIONS_PER_BLOCK)
+        if len(transactions) > 0:
+            fees = sum(t.fee for t in transactions)
+        else:
+            fees = 0
+
+        # coinbase
+        reward_transaction = Transaction(
+            "0",
+            reward_address,
+            self.blockchain.get_reward(new_block_id) + fees,
+            0,
+            "0"
+        )
+        transactions.insert(0, reward_transaction)
+
+        timestamp = int(time.time())
+
+        i = 0
+        block = Block(new_block_id, transactions, previous_hash, timestamp)
+
+        while block.hash_difficulty < self.blockchain.calculate_hash_difficulty():
+            latest_block = self.blockchain.get_latest_block()
+            if latest_block.index >= new_block_id or latest_block.current_hash != previous_hash:
+                # Next block in sequence was mined by another node.  Stop mining current block.
+                return None
+            i += 1
+            block.block_header.nonce = i
+        return block
 
     def broadcast_block(self, block):
-        #TODO convert to grequests and concurrently gather a list of responses
+        # TODO convert to grequests and concurrently gather a list of responses
         statuses = {
             "confirmations": 0,
             "invalidations": 0,
@@ -374,7 +400,7 @@ class FullNode(NodeMixin):
                             # step backwards and look for the first remote block that fits the local chain
                             block = self.request_block(remote_host, self.FULL_NODE_PORT, str(i))
                             remote_diff_blocks[0:0] = [block]
-                            if block.previous_hash == self.blockchain.get_block_by_index(i-1):
+                            if block.block_header.previous_hash == self.blockchain.get_block_by_index(i-1):
                                 # found the fork
                                 result = self.blockchain.alter_chain(remote_diff_blocks)
                                 success = result
@@ -388,7 +414,7 @@ class FullNode(NodeMixin):
 
     def __remove_unconfirmed_transactions(self, transactions):
         for transaction in transactions:
-            self.blockchain.remove_unconfirmed_transaction(transaction.tx_hash)
+            self.mempool.remove_unconfirmed_transaction(transaction.tx_hash)
 
     @app.route('/nodes', methods=['POST'])
     def post_node(self, request):
@@ -420,11 +446,15 @@ class FullNode(NodeMixin):
             logger.warn("Invalid transaction hash: {} should be {}".format(body['transaction']['tx_hash'], transaction.tx_hash))
             request.setResponseCode(406)
             return json.dumps({'message': 'Invalid transaction hash'})
-        return json.dumps({'success': self.blockchain.push_unconfirmed_transaction(transaction)})
+        if self.mempool.get_unconfirmed_transaction(transaction.tx_hash) \
+                and self.blockchain.validate_transaction(transaction) \
+                and self.mempool.push_unconfirmed_transaction(transaction):
+            return json.dumps({'success': True, 'tx_hash': transaction.tx_hash})
+        return json.dumps({'success': False, 'reason': 'Invalid transaction'})
 
     @app.route('/transactions', methods=['GET'])
     def get_transactions(self, request):
-        return json.dumps(self.blockchain.get_all_unconfirmed_transactions())
+        return json.dumps(self.mempool.get_all_unconfirmed_transactions())
 
     @app.route('/address/<address>/balance', methods=['GET'])
     def get_balance(self, request, address):
@@ -491,7 +521,7 @@ class FullNode(NodeMixin):
                     # step backwards and look for the first remote block that fits the local chain
                     block = self.request_block(remote_host, self.FULL_NODE_PORT, str(i))
                     remote_diff_blocks[0:0] = [block]
-                    if block.previous_hash == self.blockchain.get_block_by_index(i-1):
+                    if block.block_header.previous_hash == self.blockchain.get_block_by_index(i-1):
                         # found the fork
                         result = self.blockchain.alter_chain(remote_diff_blocks)
                         if not result:
