@@ -24,7 +24,7 @@ class Blockchain(object):
         self.blocks_lock = mp.Lock()
         if blocks is None:
             genesis_block = self.get_genesis_block()
-            self.add_block(genesis_block)
+            self.add_block(genesis_block, validate=False)
         else:
             for block in blocks:
                 self.add_block(block)

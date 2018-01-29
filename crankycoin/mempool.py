@@ -33,23 +33,6 @@ class Mempool(object):
             self.unconfirmed_transactions_lock.release()
         return transactions
 
-    def pop_next_unconfirmed_transaction(self):
-        """
-        Should only be called by mining nodes.  Full nodes keep unconfirmed transactions until
-        a block has been broadcasted.  During the block's validation process, the transactions
-        should be compared with the nodes' mempool.py.
-        """
-        unconfirmed_transaction = None
-        if len(self.unconfirmed_transactions) > 0:
-            self.unconfirmed_transactions_lock.acquire()
-            try:
-                if len(self.unconfirmed_transactions) != len(self.unconfirmed_transactions_map):
-                    self._synchronize_unconfirmed_transaction_map()
-                unconfirmed_transaction = self.unconfirmed_transactions.pop()
-            finally:
-                self.unconfirmed_transactions_lock.release()
-        return unconfirmed_transaction
-
     def push_unconfirmed_transaction(self, transaction):
         # TODO: prevent duplicate transactions in the mempool here
         # TODO: consider collections.OrderedDict or a set type
@@ -78,14 +61,25 @@ class Mempool(object):
         try:
             if len(self.unconfirmed_transactions) != len(self.unconfirmed_transactions_map):
                 self._synchronize_unconfirmed_transaction_map()
-            for t in self.unconfirmed_transactions:
-                if t.tx_hash == transaction_hash:
-                    self.unconfirmed_transactions.pop(self.unconfirmed_transactions.index(t))
-                    status = True
-                    break
+            transaction = self.unconfirmed_transactions_map.pop(transaction_hash, None)
+            if transaction is not None:
+                self.unconfirmed_transactions.remove(transaction)
+                status = True
         finally:
             self.unconfirmed_transactions_lock.release()
         return status
+
+    def remove_unconfirmed_transactions(self, transactions):
+        self.unconfirmed_transactions_lock.acquire()
+        try:
+            if len(self.unconfirmed_transactions) != len(self.unconfirmed_transactions_map):
+                self._synchronize_unconfirmed_transaction_map()
+            for t in transactions:
+                if self.unconfirmed_transactions_map.pop(t.tx_hash, None) is not None:
+                    self.unconfirmed_transactions.remove(t)
+        finally:
+            self.unconfirmed_transactions_lock.release()
+        return
 
     def _synchronize_unconfirmed_transaction_map(self):
         # this method does not acquire a lock.  It is assumed that the calling method will acquire the lock

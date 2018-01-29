@@ -79,12 +79,20 @@ def full():
     helptext = '''
         Available commands:
         ===================
+        balance <public key (optional)>
+        send <destination> <amount>
+        publickey
+        privatekey
+        history <public key (optional)>
         synchronize
         addnode <host>
         getnodes
         loadblockchain <path/to/blockchain>
         getblock <index (optional)>
         getblocks <start index (optional)> <stop index (optional)>
+        mempoolcount
+        getmempool
+        getunconfirmedtx <tx hash>
         quit or exit
     '''
     ip = config['user']['ip']
@@ -137,12 +145,20 @@ def miner():
     helptext = '''
         Available commands:
         ===================
+        balance <public key (optional)>
+        send <destination> <amount>
+        publickey
+        privatekey
+        history <public key (optional)>
         synchronize
         addnode <host>
         getnodes
         loadblockchain <path/to/blockchain>
         getblock <index (optional)>
         getblocks <start index (optional)> <stop index (optional)>
+        mempoolcount
+        getmempool
+        getunconfirmedtx <tx hash>
         quit or exit
     '''
     ip = config['user']['ip']

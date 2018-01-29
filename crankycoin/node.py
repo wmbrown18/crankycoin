@@ -227,10 +227,11 @@ class FullNode(NodeMixin):
             block = self.mine_block(self.reward_address)
             if not block:
                 continue
-            self.blockchain.add_block(block, validate=False)
-            statuses = self.broadcast_block(block)
-            logger.info("Block {} found with hash {} and nonce {}".format(block.index, block.current_hash, block.block_header.nonce))
-            logger.debug(statuses)
+            if self.blockchain.add_block(block, validate=False):
+                self.mempool.remove_unconfirmed_transactions(block.transactions[1:])
+                statuses = self.broadcast_block(block)
+                logger.info("Block {} found with hash {} and nonce {}".format(block.index, block.current_hash, block.block_header.nonce))
+                logger.debug(statuses)
 
     def mine_block(self, reward_address):
         #TODO add transaction fees
@@ -394,6 +395,8 @@ class FullNode(NodeMixin):
                             if not result:
                                 success = False
                                 break
+                            else:
+                                self.__remove_unconfirmed_transactions(block.transactions[1:])
                     else:
                         # first block in diff blocks does not fit local chain
                         for i in range(my_latest_block.index, 1, -1):
@@ -413,8 +416,7 @@ class FullNode(NodeMixin):
         return
 
     def __remove_unconfirmed_transactions(self, transactions):
-        for transaction in transactions:
-            self.mempool.remove_unconfirmed_transaction(transaction.tx_hash)
+        self.mempool.remove_unconfirmed_transactions(transactions)
 
     @app.route('/nodes', methods=['POST'])
     def post_node(self, request):
