@@ -1,4 +1,5 @@
 import multiprocessing as mp
+import threading
 import time
 
 from blockchain import *
@@ -9,7 +10,7 @@ class Mempool(object):
     def __init__(self):
         self.unconfirmed_transactions = []
         self.unconfirmed_transactions_map = {}
-        self.unconfirmed_transactions_lock = mp.Lock()
+        self.unconfirmed_transactions_lock = threading.Lock()
 
     def get_all_unconfirmed_transactions(self):
         return self.unconfirmed_transactions

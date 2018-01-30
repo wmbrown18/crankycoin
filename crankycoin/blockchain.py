@@ -1,10 +1,10 @@
 from math import floor
 import multiprocessing as mp
+import threading
 import time
 
 from block import *
 from errors import *
-from mempool import *
 from transaction import *
 
 
@@ -21,7 +21,7 @@ class Blockchain(object):
     blocks = []
 
     def __init__(self, blocks=None):
-        self.blocks_lock = mp.Lock()
+        self.blocks_lock = threading.Lock()
         if blocks is None:
             genesis_block = self.get_genesis_block()
             self.add_block(genesis_block, validate=False)

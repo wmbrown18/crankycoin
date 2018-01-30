@@ -1,7 +1,9 @@
 import grequests
 from klein import Klein
 import multiprocessing as mp
+import multiprocessing.managers as mpm
 import requests
+import threading
 
 from mempool import *
 from blockchain import *
@@ -81,9 +83,9 @@ class FullNode(NodeMixin):
     app = Klein()
 
     def __init__(self, host, reward_address, **kwargs):
-        mp.log_to_stderr()
-        mp_logger = mp.get_logger()
-        mp_logger.setLevel(logging.DEBUG)
+        # mp.log_to_stderr()
+        # mp_logger = mp.get_logger()
+        # mp_logger.setLevel(logging.DEBUG)
         self.host = host
         self.request_nodes_from_all()
         self.reward_address = reward_address
@@ -98,13 +100,13 @@ class FullNode(NodeMixin):
             self.load_blockchain(block_path)
 
         logger.debug("full node server starting on %s with reward address of %s...", host, reward_address)
-        self.node_process = mp.Process(target=self.app.run, args=(host, self.FULL_NODE_PORT))
+        self.node_process = mpm.Process(target=self.app.run, args=(host, self.FULL_NODE_PORT))
         self.node_process.start()
         logger.debug("full node server started on %s with reward address of %s...", host, reward_address)
         mining = kwargs.get("mining")
         if mining is True:
             self.NODE_TYPE = "miner"
-            self.mining_process = mp.Process(target=self.mine)
+            self.mining_process = threading.Thread(target=self.mine)
             self.mining_process.start()
             logger.debug("mining node started on %s with reward address of %s...", host, reward_address)
 
