@@ -82,11 +82,14 @@ class Transaction(object):
         ))
 
     def verify(self):
-        return coincurve.PublicKey(self._source).verify(self._signature, self.to_signable())
+        return coincurve.PublicKey(self._source.decode('hex')).verify(self._signature.decode('hex'), self.to_signable())
 
     def to_json(self):
         return json.dumps(self, default=lambda o: {key.lstrip('_'): value for key, value in o.__dict__.items()},
                           sort_keys=True)
+
+    def to_dict(self):
+        return {key.lstrip('_'): value for key, value in self.__dict__.items()}
 
     def __repr__(self):
         return "<Transaction {}>".format(self._tx_hash)

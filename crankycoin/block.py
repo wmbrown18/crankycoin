@@ -27,6 +27,9 @@ class BlockHeader(object):
         return json.dumps(self, default=lambda o: {key.lstrip('_'): value for key, value in o.__dict__.items()},
                           sort_keys=True)
 
+    def to_dict(self):
+        return {key.lstrip('_'): value for key, value in self.__dict__.items()}
+
     def __repr__(self):
         return "<Block Header {}>".format(self.merkle_root)
 
@@ -118,6 +121,17 @@ class Block(object):
     def to_json(self):
         return json.dumps(self, default=lambda o: {key.lstrip('_'): value for key, value in o.__dict__.items()},
                           sort_keys=True)
+
+    def to_dict(self):
+        d = dict()
+        for key, value in self.__dict__.items():
+            if isinstance(value, list):
+                d[key] = [v.to_dict() for v in value]
+            elif hasattr(value, "to_dict"):
+                d[key] = value.to_dict()
+            else:
+                d[key] = value
+        return d
 
     def __repr__(self):
         return "<Block {}>".format(self._index)

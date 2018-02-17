@@ -1,8 +1,4 @@
-import multiprocessing as mp
-import threading
-import time
-
-from blockchain import *
+from multiprocessing import Lock
 
 
 class Mempool(object):
@@ -10,7 +6,7 @@ class Mempool(object):
     def __init__(self):
         self.unconfirmed_transactions = []
         self.unconfirmed_transactions_map = {}
-        self.unconfirmed_transactions_lock = threading.Lock()
+        self.unconfirmed_transactions_lock = Lock()
 
     def get_all_unconfirmed_transactions(self):
         return self.unconfirmed_transactions
@@ -35,14 +31,13 @@ class Mempool(object):
         return transactions
 
     def push_unconfirmed_transaction(self, transaction):
-        # TODO: prevent duplicate transactions in the mempool here
         # TODO: consider collections.OrderedDict or a set type
         status = False
         self.unconfirmed_transactions_lock.acquire()
         try:
             if len(self.unconfirmed_transactions) != len(self.unconfirmed_transactions_map):
                 self._synchronize_unconfirmed_transaction_map()
-            if self.unconfirmed_transactions_map.get(transaction.tx_hash) is not None:
+            if self.unconfirmed_transactions_map.get(transaction.tx_hash) is None:
                 for t in self.unconfirmed_transactions:
                     if transaction.fee <= t.fee:
                         self.unconfirmed_transactions.insert(self.unconfirmed_transactions.index(t), transaction)

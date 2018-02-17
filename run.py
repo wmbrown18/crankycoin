@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import argparse
 import hashlib
+import requests
 import sys
 from getpass import getpass
 from Cryptodome.Cipher import AES
@@ -13,12 +14,13 @@ _PY3 = sys.version_info[0] > 2
 if _PY3:
     raw_input = input
 
+
 def client():
     helptext = '''
         Available commands:
         ===================
         balance <public key (optional)>
-        send <destination> <amount>
+        send <destination> <amount> <fee>
         publickey
         privatekey
         history <public key (optional)>
@@ -57,7 +59,7 @@ def client():
                 if len(cmd_split) == 4:
                     print(client.create_transaction(cmd_split[1], float(cmd_split[2]), float(cmd_split[3])))
                 else:
-                    print("\nRequires destination and amount\n")
+                    print("\nRequires destination, amount, fee\n")
             elif cmd_split[0] == "publickey":
                 print(client.get_public_key())
             elif cmd_split[0] == "privatekey":
@@ -80,9 +82,6 @@ def full():
         Available commands:
         ===================
         balance <public key (optional)>
-        send <destination> <amount>
-        publickey
-        privatekey
         history <public key (optional)>
         synchronize
         addnode <host>
@@ -108,7 +107,22 @@ def full():
         cmd = raw_input("{} ({}) full node > ".format(config['network']['name'], config['network']['ticker_symbol']))
         cmd_split = cmd.split()
         try:
-            if cmd_split[0] == "synchronize":
+            if cmd_split[0] == "balance":
+                if len(cmd_split) == 2:
+                    url = fullnode.BALANCE_URL.format("localhost", fullnode.FULL_NODE_PORT, cmd_split[1])
+                else:
+                    url = fullnode.BALANCE_URL.format("localhost", fullnode.FULL_NODE_PORT, public_key)
+                response = requests.get(url)
+                print(response.json())
+            elif cmd_split[0] == "history":
+                if len(cmd_split) == 2:
+                    url = fullnode.TRANSACTION_HISTORY_URL.format("localhost", fullnode.FULL_NODE_PORT, cmd_split[1])
+                    response = requests.get(url)
+                else:
+                    url = fullnode.TRANSACTION_HISTORY_URL.format("localhost", fullnode.FULL_NODE_PORT, public_key)
+                    response = requests.get(url)
+                print(response.json())
+            elif cmd_split[0] == "synchronize":
                 print(fullnode.synchronize())
             elif cmd_split[0] == "addnode":
                 if len(cmd_split) == 2:
@@ -124,16 +138,31 @@ def full():
                     print("\nRequires path/to/blockchain\n")
             elif cmd_split[0] == "getblock":
                 if len(cmd_split) == 2:
-                    print(fullnode.blockchain.get_block_by_index(int(cmd_split[1])))
+                    url = fullnode.BLOCKS_URL.format("localhost", fullnode.FULL_NODE_PORT, cmd_split[1])
                 else:
-                    print(fullnode.blockchain.get_latest_block())
+                    url = fullnode.BLOCKS_URL.format("localhost", fullnode.FULL_NODE_PORT, "latest")
+                response = requests.get(url)
+                print(response.json())
             elif cmd_split[0] == "getblocks":
                 if len(cmd_split) == 3:
-                    print(fullnode.blockchain.get_blocks_range(int(cmd_split[1]), int(cmd_split[2])))
+                    url = fullnode.BLOCKS_RANGE_URL.format("localhost", fullnode.FULL_NODE_PORT, cmd_split[1], cmd_split[2])
                 else:
-                    print(fullnode.blockchain.get_all_blocks())
+                    url = fullnode.BLOCKS_URL.format("localhost", fullnode.FULL_NODE_PORT, "")
+                response = requests.get(url)
+                print(response.json())
+            elif cmd_split[0] == "mempoolcount":
+                print(len(fullnode.mempool.get_all_unconfirmed_transactions_map()))
+            elif cmd_split[0] == "getmempool":
+                url = fullnode.TRANSACTIONS_URL.format("localhost", fullnode.FULL_NODE_PORT, "")
+                response = requests.get(url)
+                print(response.json())
+            elif cmd_split[0] == "getunconfirmedtx":
+                if len(cmd_split) == 2:
+                    print(fullnode.mempool.get_unconfirmed_transaction(cmd_split[1]))
+                else:
+                    print("\nRequires tx hash\n")
             elif cmd_split[0] in ("quit", "exit"):
-                fullnode.shutdown(True)
+                fullnode.shutdown()
                 sys.exit(0)
             else:  # help
                 print(helptext)
@@ -174,7 +203,17 @@ def miner():
         cmd = raw_input("{} ({}) full node > ".format(config['network']['name'], config['network']['ticker_symbol']))
         cmd_split = cmd.split()
         try:
-            if cmd_split[0] == "synchronize":
+            if cmd_split[0] == "balance":
+                if len(cmd_split) == 2:
+                    print(fullnode.blockchain.get_balance(cmd_split[1]))
+                else:
+                    print(fullnode.blockchain.get_balance(public_key))
+            elif cmd_split[0] == "history":
+                if len(cmd_split) == 2:
+                    print(fullnode.blockchain.get_transaction_history(cmd_split[1]))
+                else:
+                    print(fullnode.blockchain.get_transaction_history(public_key))
+            elif cmd_split[0] == "synchronize":
                 print(fullnode.synchronize())
             elif cmd_split[0] == "addnode":
                 if len(cmd_split) == 2:
@@ -198,8 +237,17 @@ def miner():
                     print(fullnode.blockchain.get_blocks_range(int(cmd_split[1]), int(cmd_split[2])))
                 else:
                     print(fullnode.blockchain.get_all_blocks())
+            elif cmd_split[0] == "mempoolcount":
+                print(len(fullnode.mempool.get_all_unconfirmed_transactions_map()))
+            elif cmd_split[0] == "getmempool":
+                print(fullnode.mempool.get_all_unconfirmed_transactions_map())
+            elif cmd_split[0] == "getunconfirmedtx":
+                if len(cmd_split) == 2:
+                    print(fullnode.mempool.get_unconfirmed_transaction(cmd_split[1]))
+                else:
+                    print("\nRequires tx hash\n")
             elif cmd_split[0] in ("quit", "exit"):
-                fullnode.shutdown(True)
+                fullnode.shutdown()
                 sys.exit(0)
             else:  # help
                 print(helptext)

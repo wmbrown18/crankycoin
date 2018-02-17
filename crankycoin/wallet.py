@@ -31,7 +31,7 @@ class Client(NodeMixin):
 
     def verify(self, signature, message, public_key=None):
         if public_key is not None:
-            return coincurve.PublicKey(public_key).verify(signature, message)
+            return coincurve.PublicKey(public_key.decode('hex')).verify(signature.decode('hex'), message)
         return self.__public_key__.verify(signature, message)
 
     def get_balance(self, address=None, node=None):

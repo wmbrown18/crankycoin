@@ -1,6 +1,5 @@
 from math import floor
-import multiprocessing as mp
-import threading
+from multiprocessing import Lock
 import time
 
 from block import *
@@ -21,7 +20,7 @@ class Blockchain(object):
     blocks = []
 
     def __init__(self, blocks=None):
-        self.blocks_lock = threading.Lock()
+        self.blocks_lock = Lock()
         if blocks is None:
             genesis_block = self.get_genesis_block()
             self.add_block(genesis_block, validate=False)
@@ -39,7 +38,7 @@ class Blockchain(object):
         )
         genesis_transaction_two = Transaction(
             "0",
-            "03dd1e3defd36c8c0c7282ca1a324851efdb15f742cac0c5b258ef7b290ece9e5d",
+            "03dd1eff6aa6cfb98d8a93782d7a4f933dbd2cd7d7af72c97349ae21816cfc85ed",
             500000,
             0,
             ""
@@ -158,7 +157,7 @@ class Blockchain(object):
         for block in self.blocks:
             for transaction in block.transactions:
                 if transaction.source == address or transaction.destination == address:
-                    transactions.append(transaction)
+                    transactions.append(transaction.to_json())
         return transactions
 
     def get_balance(self, address):

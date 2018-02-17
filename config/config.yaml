@@ -10,16 +10,15 @@ network:
     initial_coins_per_block: 50
     halving_frequency: 210000
     max_transactions_per_block: 2000
-    minimum_hash_difficulty: 4
+    minimum_hash_difficulty: 1
     target_time_per_block: 600
     difficulty_adjustment_span: 500
     significant_digits: 8
     full_node_port: 30013
     nodes_url: "http://{}:{}/nodes"
-    transactions_url: "http://{}:{}/transactions"
-    block_url: "http://{}:{}/block/{}"
-    blocks_range_url: "http://{}:{}/blocks/{}/{}"
-    blocks_url: "http://{}:{}/blocks"
+    transactions_url: "http://{}:{}/transactions/{}"
+    blocks_range_url: "http://{}:{}/blocks/start/{}/end/{}"
+    blocks_url: "http://{}:{}/blocks/{}"
     transaction_history_url: "http://{}:{}/address/{}/transactions"
     balance_url: "http://{}:{}/address/{}/balance"
     status_url: "http://{}:{}/status"

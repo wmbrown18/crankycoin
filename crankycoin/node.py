@@ -1,9 +1,8 @@
 import grequests
 from klein import Klein
-import multiprocessing as mp
-import multiprocessing.managers as mpm
+from multiprocessing import Lock, Process
 import requests
-import threading
+from threading import Thread
 
 from mempool import *
 from blockchain import *
@@ -15,7 +14,6 @@ class NodeMixin(object):
     FULL_NODE_PORT = config['network']['full_node_port']
     NODES_URL = config['network']['nodes_url']
     TRANSACTIONS_URL = config['network']['transactions_url']
-    BLOCK_URL = config['network']['block_url']
     BLOCKS_RANGE_URL = config['network']['blocks_range_url']
     BLOCKS_URL = config['network']['blocks_url']
     TRANSACTION_HISTORY_URL = config['network']['transaction_history_url']
@@ -61,11 +59,11 @@ class NodeMixin(object):
         self.request_nodes_from_all()
         bad_nodes = set()
         data = {
-            "transaction": transaction.to_json()
+            "transaction": transaction.to_dict()
         }
-
+        print(data)
         for node in self.full_nodes:
-            url = self.TRANSACTIONS_URL.format(node, self.FULL_NODE_PORT)
+            url = self.TRANSACTIONS_URL.format(node, self.FULL_NODE_PORT, "")
             try:
                 response = requests.post(url, json=data)
             except requests.exceptions.RequestException as re:
@@ -100,28 +98,23 @@ class FullNode(NodeMixin):
             self.load_blockchain(block_path)
 
         logger.debug("full node server starting on %s with reward address of %s...", host, reward_address)
-        self.node_process = mpm.Process(target=self.app.run, args=(host, self.FULL_NODE_PORT))
+        self.node_process = Process(target=self.app.run, args=(host, self.FULL_NODE_PORT))
         self.node_process.start()
         logger.debug("full node server started on %s with reward address of %s...", host, reward_address)
         mining = kwargs.get("mining")
         if mining is True:
             self.NODE_TYPE = "miner"
-            self.mining_process = threading.Thread(target=self.mine)
+            self.mining_process = Process(target=self.mine)
             self.mining_process.start()
             logger.debug("mining node started on %s with reward address of %s...", host, reward_address)
 
-    def shutdown(self, force=False):
-        if force is True:
-            if self.NODE_TYPE == "miner":
-                self.mining_process.terminate()
-            self.node_process.terminate()
-        else:
-            if self.NODE_TYPE == "miner":
-                self.mining_process.join(1)
-            self.node_process.join(1)
+    def shutdown(self):
+        if self.NODE_TYPE == "miner":
+            self.mining_process.join(1)
+        self.node_process.terminate()
 
     def request_block(self, node, port, index="latest"):
-        url = self.BLOCK_URL.format(node, port, index)
+        url = self.BLOCKS_URL.format(node, port, index)
         try:
             response = requests.get(url)
             if response.status_code == 200:
@@ -134,7 +127,7 @@ class FullNode(NodeMixin):
                         transaction['amount'],
                         transaction['fee'],
                         transaction['signature'])
-                        for transaction in block_dict['transactions']
+                     for transaction in block_dict['transactions']
                      ],
                     block_dict['previous_hash'],
                     block_dict['timestamp'],
@@ -194,7 +187,7 @@ class FullNode(NodeMixin):
         return blocks
 
     def request_blockchain(self, node, port):
-        url = self.BLOCKS_URL.format(node, port)
+        url = self.BLOCKS_URL.format(node, port, "")
         blocks = []
         try:
             response = requests.get(url)
@@ -236,7 +229,6 @@ class FullNode(NodeMixin):
                 logger.debug(statuses)
 
     def mine_block(self, reward_address):
-        #TODO add transaction fees
         latest_block = self.blockchain.get_latest_block()
         new_block_id = latest_block.index + 1
         previous_hash = latest_block.current_hash
@@ -289,7 +281,7 @@ class FullNode(NodeMixin):
         for node in self.full_nodes:
             if node == self.host:
                 continue
-            url = self.BLOCKS_URL.format(node, self.FULL_NODE_PORT)
+            url = self.BLOCKS_URL.format(node, self.FULL_NODE_PORT, "")
             try:
                 response = requests.post(url, json=data)
                 if response.status_code == 202:
@@ -358,7 +350,7 @@ class FullNode(NodeMixin):
         self.request_nodes_from_all()
         bad_nodes = set()
         for node in self.full_nodes:
-            url = self.BLOCK_URL.format(node, self.FULL_NODE_PORT, "latest")
+            url = self.BLOCKS_URL.format(node, self.FULL_NODE_PORT, "latest")
             try:
                 response = requests.get(url)
                 if response.status_code == 200:
@@ -450,15 +442,23 @@ class FullNode(NodeMixin):
             logger.warn("Invalid transaction hash: {} should be {}".format(body['transaction']['tx_hash'], transaction.tx_hash))
             request.setResponseCode(406)
             return json.dumps({'message': 'Invalid transaction hash'})
-        if self.mempool.get_unconfirmed_transaction(transaction.tx_hash) \
+        if self.mempool.get_unconfirmed_transaction(transaction.tx_hash) is None \
                 and self.blockchain.validate_transaction(transaction) \
                 and self.mempool.push_unconfirmed_transaction(transaction):
+            request.setResponseCode(200)
             return json.dumps({'success': True, 'tx_hash': transaction.tx_hash})
+        request.setResponseCode(406)
         return json.dumps({'success': False, 'reason': 'Invalid transaction'})
 
-    @app.route('/transactions', methods=['GET'])
-    def get_transactions(self, request):
+    @app.route('/transactions/', methods=['GET'])
+    def get_unconfirmed_transactions(self, request):
         return json.dumps(self.mempool.get_all_unconfirmed_transactions())
+
+    @app.route('/transactions/<txhash>', methods=['GET'])
+    def get_unconfirmed_transaction(self, request, tx_hash):
+        if not bool(tx_hash and tx_hash.strip()):
+            return json.dumps(self.mempool.get_all_unconfirmed_transactions())
+        return json.dumps(self.mempool.get_unconfirmed_transaction(tx_hash))
 
     @app.route('/address/<address>/balance', methods=['GET'])
     def get_balance(self, request, address):
@@ -479,8 +479,8 @@ class FullNode(NodeMixin):
             transaction['amount'],
             transaction['fee'],
             transaction['signature'])
-            for transaction in remote_block['transactions']
-        ]
+                        for transaction in remote_block['transactions']
+                        ]
         block = Block(
             remote_block['index'],
             [Transaction(
@@ -551,19 +551,19 @@ class FullNode(NodeMixin):
         request.setResponseCode(202)  # accepted
         return json.dumps({'message': 'accepted'})
 
-    @app.route('/blocks', methods=['GET'])
-    def get_blocks(self, request):
-        return json.dumps([block.to_json() for block in self.blockchain.get_all_blocks()])
-
-    @app.route('/blocks/<start_block_id>/<end_block_id>', methods=['GET'])
+    @app.route('/blocks/start/<start_block_id>/end/<end_block_id>', methods=['GET'])
     def get_blocks_range(self, request, start_block_id, end_block_id):
-        return json.dumps([block.to_json() for block in self.blockchain.get_blocks_range(start_block_id, end_block_id)])
+        return json.dumps([block.to_dict() for block in self.blockchain.get_blocks_range(int(start_block_id), int(end_block_id))])
 
-    @app.route('/block/<block_id>', methods=['GET'])
+    @app.route('/blocks/<block_id>', methods=['GET'])
     def get_block(self, request, block_id):
         if block_id == "latest":
-            return json.dumps(self.blockchain.get_latest_block().to_json())
-        return json.dumps(self.blockchain.get_block_by_index(block_id).to_json())
+            return json.dumps(self.blockchain.get_latest_block().to_dict())
+        return json.dumps(self.blockchain.get_block_by_index(int(block_id)).to_dict())
+
+    @app.route('/blocks/', methods=['GET'])
+    def get_blocks(self, request):
+        return json.dumps([block.to_dict() for block in self.blockchain.get_all_blocks()])
 
 
 if __name__ == "__main__":
