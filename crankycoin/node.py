@@ -454,6 +454,10 @@ class FullNode(NodeMixin):
     def get_unconfirmed_transactions(self, request):
         return json.dumps(self.mempool.get_all_unconfirmed_transactions())
 
+    @app.route('/transactions/count', methods=['GET'])
+    def get_unconfirmed_transactions_count(self, request):
+        return json.dumps(len(self.mempool.get_all_unconfirmed_transactions_map()))
+
     @app.route('/transactions/<txhash>', methods=['GET'])
     def get_unconfirmed_transaction(self, request, tx_hash):
         if not bool(tx_hash and tx_hash.strip()):
