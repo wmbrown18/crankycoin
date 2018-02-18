@@ -19,15 +19,6 @@ class Blockchain(object):
 
     blocks = []
 
-    def __init__(self, blocks=None):
-        self.blocks_lock = Lock()
-        if blocks is None:
-            genesis_block = self.get_genesis_block()
-            self.add_block(genesis_block, validate=False)
-        else:
-            for block in blocks:
-                self.add_block(block)
-
     def get_genesis_block(self):
         genesis_transaction_one = Transaction(
             "0",
@@ -46,6 +37,15 @@ class Blockchain(object):
         genesis_transactions = [genesis_transaction_one, genesis_transaction_two]
         genesis_block = Block(0, genesis_transactions, "", 0)
         return genesis_block
+
+    def __init__(self, blocks=None):
+        self.blocks_lock = Lock()
+        if blocks is None:
+            genesis_block = self.get_genesis_block()
+            self.add_block(genesis_block, validate=False)
+        else:
+            for block in blocks:
+                self.add_block(block)
 
     def _check_genesis_block(self, block):
         if block != self.get_genesis_block():

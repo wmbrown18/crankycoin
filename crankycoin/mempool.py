@@ -31,7 +31,6 @@ class Mempool(object):
         return transactions
 
     def push_unconfirmed_transaction(self, transaction):
-        # TODO: consider collections.OrderedDict or a set type
         status = False
         self.unconfirmed_transactions_lock.acquire()
         try:

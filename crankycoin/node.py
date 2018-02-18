@@ -412,24 +412,24 @@ class FullNode(NodeMixin):
     def __remove_unconfirmed_transactions(self, transactions):
         self.mempool.remove_unconfirmed_transactions(transactions)
 
-    @app.route('/nodes', methods=['POST'])
+    @app.route('/nodes/', methods=['POST'])
     def post_node(self, request):
         body = json.loads(request.content.read())
         self.add_node(body['host'])
         return json.dumps({'success': True})
 
-    @app.route('/nodes', methods=['GET'])
+    @app.route('/nodes/', methods=['GET'])
     def get_nodes(self, request):
         nodes = {
             "full_nodes": list(self.full_nodes)
         }
         return json.dumps(nodes)
 
-    @app.route('/status', methods=['GET'])
+    @app.route('/status/', methods=['GET'])
     def get_status(self, request):
         return json.dumps(config['network'])
 
-    @app.route('/transactions', methods=['POST'])
+    @app.route('/transactions/', methods=['POST'])
     def post_transactions(self, request):
         body = json.loads(request.content.read())
         transaction = Transaction(
@@ -452,17 +452,19 @@ class FullNode(NodeMixin):
 
     @app.route('/transactions/', methods=['GET'])
     def get_unconfirmed_transactions(self, request):
-        return json.dumps(self.mempool.get_all_unconfirmed_transactions())
+        return json.dumps([transaction.to_dict() for transaction in self.mempool.get_all_unconfirmed_transactions()])
 
     @app.route('/transactions/count', methods=['GET'])
     def get_unconfirmed_transactions_count(self, request):
         return json.dumps(len(self.mempool.get_all_unconfirmed_transactions_map()))
 
-    @app.route('/transactions/<txhash>', methods=['GET'])
+    @app.route('/transactions/<tx_hash>', methods=['GET'])
     def get_unconfirmed_transaction(self, request, tx_hash):
-        if not bool(tx_hash and tx_hash.strip()):
-            return json.dumps(self.mempool.get_all_unconfirmed_transactions())
-        return json.dumps(self.mempool.get_unconfirmed_transaction(tx_hash))
+        transaction = self.mempool.get_unconfirmed_transaction(tx_hash)
+        if transaction is None:
+            request.setResponseCode(404)
+            return json.dumps({'success': False, 'reason': 'Transaction Not Found'})
+        return json.dumps(transaction.to_dict())
 
     @app.route('/address/<address>/balance', methods=['GET'])
     def get_balance(self, request, address):
@@ -472,7 +474,7 @@ class FullNode(NodeMixin):
     def get_transaction_history(self, request, address):
         return json.dumps(self.blockchain.get_transaction_history(address))
 
-    @app.route('/blocks', methods=['POST'])
+    @app.route('/blocks/', methods=['POST'])
     def post_block(self, request):
         body = json.loads(request.content.read())
         remote_block = json.loads(body['block'])
