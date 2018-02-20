@@ -2,7 +2,8 @@ user:
     public_key:
     encrypted_private_key:
     ip: "127.0.0.1"
-    block_path:
+    block_path: "./blocks/"
+    leveldb_path: "./leveldb/"
 network:
     name: "Cranky Coin"
     ticker_symbol: "CRNK"

@@ -1315,7 +1315,7 @@ class TestBlockchain(unittest.TestCase):
             subject = Blockchain()
             subject.blocks = [mock_block, mock_block, mock_block]
 
-            size = subject.get_size()
+            size = subject.get_height()
 
             self.assertEqual(3, size)
 
@@ -1323,7 +1323,7 @@ class TestBlockchain(unittest.TestCase):
         with patch.object(Blockchain, '__init__', return_value=None) as patched_init:
             subject = Blockchain()
 
-            size = subject.get_size()
+            size = subject.get_height()
 
             self.assertEqual(0, size)
 

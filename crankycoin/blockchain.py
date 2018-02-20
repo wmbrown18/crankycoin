@@ -17,8 +17,6 @@ class Blockchain(object):
     DIFFICULTY_ADJUSTMENT_SPAN = config['network']['difficulty_adjustment_span']
     SIGNIFICANT_DIGITS = config['network']['significant_digits']
 
-    blocks = []
-
     def get_genesis_block(self):
         genesis_transaction_one = Transaction(
             "0",
@@ -38,14 +36,13 @@ class Blockchain(object):
         genesis_block = Block(0, genesis_transactions, "", 0)
         return genesis_block
 
-    def __init__(self, blocks=None):
+    def __init__(self, db):
+        # db : leveldb instance or compatible
+        self.db = db
         self.blocks_lock = Lock()
-        if blocks is None:
-            genesis_block = self.get_genesis_block()
-            self.add_block(genesis_block, validate=False)
-        else:
-            for block in blocks:
-                self.add_block(block)
+        # TODO: Migrate to use leveldb!
+        genesis_block = self.get_genesis_block()
+        self.add_block(genesis_block, validate=False)
 
     def _check_genesis_block(self, block):
         if block != self.get_genesis_block():
@@ -124,14 +121,14 @@ class Blockchain(object):
         return True
 
     def alter_chain(self, blocks):
-        #TODO enforce finality through key blocks
+        # TODO: refactor the way this works
         fork_start = blocks[0].index
         alternate_blocks = self.blocks[0:fork_start]
         alternate_blocks.extend(blocks)
         alternate_chain = Blockchain(alternate_blocks)
 
         status = False
-        if alternate_chain.get_size() > self.get_size():
+        if alternate_chain.get_height() > self.get_height():
             self.blocks_lock.acquire()
             try:
                 self.blocks = alternate_blocks
@@ -141,15 +138,19 @@ class Blockchain(object):
         return status
 
     def add_block(self, block, validate=True):
-        #TODO change this from memory to persistent
         status = False
         if not validate or self.validate_block(block):
             self.blocks_lock.acquire()
-            try:
-                self.blocks.append(block)
+            with self.db.write_batch(transaction=True):
+                block_key = str(block.index).encode('utf-8')
+                block_value = json.dumps(block.to_dict()).encode('utf-8')
+                self.db.put(block_key, block_value)
+                if block.index > self.get_height():
+                    height_key = b'height'
+                    height_value = str(block.index).encode('utf-8')
+                    self.db.put(height_key, height_value)
                 status = True
-            finally:
-                self.blocks_lock.release()
+            self.blocks_lock.release()
         return status
 
     def get_transaction_history(self, address):
@@ -213,25 +214,25 @@ class Blockchain(object):
             reward = floor((reward / 2.0) * precision) / precision
         return reward
 
-    def get_size(self):
-        return len(self.blocks)
+    def get_height(self):
+        return int(self.db.get(b'height'))
 
     def get_latest_block(self):
-        try:
-            return self.blocks[-1]
-        except IndexError:
-            return None
+        block_key = self.db.get(b'height')
+        block_data = self.db.get(block_key)
+        return Block.from_dict(json.loads(block_data))
 
     def get_block_by_index(self, index):
-        try:
-            return self.blocks[index]
-        except IndexError:
-            return None
+        block_key = str(index).encode('utf-8')
+        block_data = self.db.get(block_key)
+        return Block.from_dict(json.loads(block_data))
 
     def get_all_blocks(self):
+        # TODO: refactor for leveldb. Use Snapshot
         return self.blocks
 
     def get_blocks_range(self, start_index, stop_index):
+        # TODO: refactor for leveldb. Use Snapshot
         return self.blocks[start_index:stop_index+1]
 
     def __str__(self):

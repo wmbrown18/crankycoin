@@ -1,6 +1,7 @@
 import grequests
 from klein import Klein
 from multiprocessing import Lock, Process
+import plyvel
 import requests
 from threading import Thread
 
@@ -90,12 +91,8 @@ class FullNode(NodeMixin):
         self.broadcast_node(host)
         self.full_nodes.add(host)
         self.mempool = Mempool()
-
-        block_path = kwargs.get("block_path")
-        if block_path is None:
-            self.blockchain = Blockchain()
-        else:
-            self.load_blockchain(block_path)
+        self.leveldb = plyvel.DB(config['user']['leveldb_path'], create_if_missing=True)
+        self.blockchain = Blockchain(self.leveldb)
 
         logger.debug("full node server starting on %s with reward address of %s...", host, reward_address)
         self.node_process = Process(target=self.app.run, args=(host, self.FULL_NODE_PORT))
@@ -104,13 +101,15 @@ class FullNode(NodeMixin):
         mining = kwargs.get("mining")
         if mining is True:
             self.NODE_TYPE = "miner"
-            self.mining_process = Process(target=self.mine)
-            self.mining_process.start()
+            self.exit_flag = False
+            self.mining_thread = Thread(target=self.mine)
+            self.mining_thread.start()
             logger.debug("mining node started on %s with reward address of %s...", host, reward_address)
 
     def shutdown(self):
         if self.NODE_TYPE == "miner":
-            self.mining_process.join(1)
+            self.exit_flag = True
+            self.mining_thread.join()
         self.node_process.terminate()
 
     def request_block(self, node, port, index="latest"):
@@ -218,7 +217,7 @@ class FullNode(NodeMixin):
 
     def mine(self):
         logger.debug("mining node starting on %s with reward address of %s...", self.host, self.reward_address)
-        while True:
+        while not self.exit_flag:
             block = self.mine_block(self.reward_address)
             if not block:
                 continue
@@ -227,6 +226,7 @@ class FullNode(NodeMixin):
                 statuses = self.broadcast_block(block)
                 logger.info("Block {} found with hash {} and nonce {}".format(block.index, block.current_hash, block.block_header.nonce))
                 logger.debug(statuses)
+        return
 
     def mine_block(self, reward_address):
         latest_block = self.blockchain.get_latest_block()
@@ -254,7 +254,7 @@ class FullNode(NodeMixin):
         i = 0
         block = Block(new_block_id, transactions, previous_hash, timestamp)
 
-        while block.hash_difficulty < self.blockchain.calculate_hash_difficulty():
+        while not self.exit_flag and block.hash_difficulty < self.blockchain.calculate_hash_difficulty():
             latest_block = self.blockchain.get_latest_block()
             if latest_block.index >= new_block_id or latest_block.current_hash != previous_hash:
                 # Next block in sequence was mined by another node.  Stop mining current block.
@@ -479,28 +479,7 @@ class FullNode(NodeMixin):
         body = json.loads(request.content.read())
         remote_block = json.loads(body['block'])
         remote_host = body['host']
-        transactions = [Transaction(
-            transaction['source'],
-            transaction['destination'],
-            transaction['amount'],
-            transaction['fee'],
-            transaction['signature'])
-                        for transaction in remote_block['transactions']
-                        ]
-        block = Block(
-            remote_block['index'],
-            [Transaction(
-                transaction['source'],
-                transaction['destination'],
-                transaction['amount'],
-                transaction['fee'],
-                transaction['signature'])
-             for transaction in remote_block['transactions']
-             ],
-            remote_block['previous_hash'],
-            remote_block['timestamp'],
-            remote_block['nonce']
-        )
+        block = Block.from_dict(remote_block)
         if block.current_hash != remote_block['current_hash']:
             request.setResponseCode(406)  # not acceptable
             return json.dumps({'message': 'block rejected due to invalid hash'})
@@ -522,7 +501,7 @@ class FullNode(NodeMixin):
                     if not result:
                         request.setResponseCode(406)  # not acceptable
                         return json.dumps({'message': 'block {} rejected'.format(block.index)})
-                self.__remove_unconfirmed_transactions(transactions)
+                self.__remove_unconfirmed_transactions(block.transactions)
                 request.setResponseCode(202)  # accepted
                 return json.dumps({'message': 'accepted'})
             else:
@@ -537,7 +516,7 @@ class FullNode(NodeMixin):
                         if not result:
                             request.setResponseCode(406)  # not acceptable
                             return json.dumps({'message': 'blocks rejected'})
-                        self.__remove_unconfirmed_transactions(transactions)
+                        self.__remove_unconfirmed_transactions(block.transactions)
                         request.setResponseCode(202)  # accepted
                         return json.dumps({'message': 'accepted'})
                 request.setResponseCode(406)  # not acceptable
@@ -553,7 +532,7 @@ class FullNode(NodeMixin):
         if not result:
             request.setResponseCode(406)  # not acceptable
             return json.dumps({'message': 'block {} rejected'.format(block.index)})
-        self.__remove_unconfirmed_transactions(transactions)
+        self.__remove_unconfirmed_transactions(block.transactions)
         request.setResponseCode(202)  # accepted
         return json.dumps({'message': 'accepted'})
 
@@ -564,8 +543,13 @@ class FullNode(NodeMixin):
     @app.route('/blocks/<block_id>', methods=['GET'])
     def get_block(self, request, block_id):
         if block_id == "latest":
-            return json.dumps(self.blockchain.get_latest_block().to_dict())
-        return json.dumps(self.blockchain.get_block_by_index(int(block_id)).to_dict())
+            block = self.blockchain.get_latest_block()
+        else:
+            block = self.blockchain.get_block_by_index(int(block_id))
+        if block is None:
+            request.setResponseCode(404)
+            return json.dumps({'success': False, 'reason': 'Block Not Found'})
+        return json.dumps(block.to_dict())
 
     @app.route('/blocks/', methods=['GET'])
     def get_blocks(self, request):

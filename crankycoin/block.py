@@ -4,6 +4,7 @@ import json
 import pyscrypt
 
 from config import *
+from crankycoin import Transaction
 from errors import *
 
 
@@ -132,6 +133,23 @@ class Block(object):
             else:
                 d[key] = value
         return d
+
+    @classmethod
+    def from_dict(cls, block_dict):
+        return cls(
+            block_dict['index'],
+            [Transaction(
+                transaction['source'],
+                transaction['destination'],
+                transaction['amount'],
+                transaction['fee'],
+                transaction['signature'])
+             for transaction in block_dict['transactions']
+             ],
+            block_dict['previous_hash'],
+            block_dict['timestamp'],
+            block_dict['nonce']
+        )
 
     def __repr__(self):
         return "<Block {}>".format(self._index)
