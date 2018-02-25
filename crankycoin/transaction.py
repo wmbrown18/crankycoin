@@ -8,15 +8,17 @@ from errors import *
 
 class Transaction(object):
 
-    def __init__(self, source, destination, amount, fee, signature=None):
+    def __init__(self, source, destination, amount, fee, tx_type=1, timestamp=None, tx_hash=None, signature=None):
         self._source = source
         self._destination = destination
         self._amount = amount
         self._fee = fee
-        self._timestamp = int(time.time())
+        if timestamp is None:
+            self._timestamp = int(time.time())
         self._signature = signature
-        self._tx_hash = None
-        if signature is not None:
+        self._tx_hash = tx_hash
+        self._tx_type = tx_type
+        if tx_hash is None and signature is not None:
             self._tx_hash = self._calculate_tx_hash()
 
     @property
@@ -44,6 +46,10 @@ class Transaction(object):
         return self._tx_hash
 
     @property
+    def tx_type(self):
+        return self._tx_type
+
+    @property
     def signature(self):
         return self._signature
 
@@ -60,6 +66,7 @@ class Transaction(object):
             "amount": self._amount,
             "fee": self._fee,
             "timestamp": self._timestamp,
+            "tx_type": self._tx_type,
             "signature": self._signature
         }
         data_json = json.dumps(data, sort_keys=True)
@@ -78,7 +85,8 @@ class Transaction(object):
             self._destination,
             str(self._amount),
             str(self._fee),
-            str(self._timestamp)
+            str(self._timestamp),
+            str(self._tx_type)
         ))
 
     def verify(self):

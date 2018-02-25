@@ -14,20 +14,28 @@ Cranky Coin is a simple blockchain, cryptocurrency, wallet implementation
 # pip install -r requirements-dev.txt
 ```
 
-** Generating a wallet **
+**Generating a wallet**
 
 ```
 # python run.py client
 Cranky Coin (CRNK) wallet > publickey
+```
 *copy your public key*
+```
 Cranky Coin (CRNK) wallet > privatekey
+```
 *copy your private key*
+```
 Cranky Coin (CRNK) wallet > quit
 # python ./tools/encrypt.py
+```
 *enter a secure passphrase*
+```
 Choose a passphrase:
 Re-enter your passphrase:
+```
 *enter your private key*
+```
 Secret:
 Encrypted private key:
 *copy your encrypted private key*

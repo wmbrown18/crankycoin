@@ -1,5 +1,6 @@
 from math import floor
 from multiprocessing import Lock
+import sqlite3
 import time
 
 from block import *
@@ -36,13 +37,11 @@ class Blockchain(object):
         genesis_block = Block(0, genesis_transactions, "", 0)
         return genesis_block
 
-    def __init__(self, db):
-        # db : leveldb instance or compatible
-        self.db = db
+    def __init__(self):
         self.blocks_lock = Lock()
-        # TODO: Migrate to use leveldb!
-        genesis_block = self.get_genesis_block()
-        self.add_block(genesis_block, validate=False)
+        if self.get_height() is None:
+            genesis_block = self.get_genesis_block()
+            self.add_block(genesis_block, validate=False)
 
     def _check_genesis_block(self, block):
         if block != self.get_genesis_block():
@@ -56,7 +55,7 @@ class Blockchain(object):
         return
 
     def _check_index_and_previous_hash(self, block):
-        latest_block = self.get_latest_block()
+        latest_block = self.get_latest_block_header()
         if latest_block.index != block.index - 1:
             raise ChainContinuityError(block.index, "Incompatible block index: {}".format(block.index-1))
         if latest_block.current_hash != block.block_header.previous_hash:
@@ -90,7 +89,6 @@ class Blockchain(object):
 
     def validate_block(self, block):
         # verify genesis block integrity
-        # TODO implement and use Merkle tree
         try:
             # if genesis block, check if block is correct
             if block.index == 0:
@@ -121,7 +119,7 @@ class Blockchain(object):
         return True
 
     def alter_chain(self, blocks):
-        # TODO: refactor the way this works
+        # TODO: Deprecate?
         fork_start = blocks[0].index
         alternate_blocks = self.blocks[0:fork_start]
         alternate_blocks.extend(blocks)
@@ -140,61 +138,71 @@ class Blockchain(object):
     def add_block(self, block, validate=True):
         status = False
         if not validate or self.validate_block(block):
-            self.blocks_lock.acquire()
-            with self.db.write_batch(transaction=True):
-                block_key = str(block.index).encode('utf-8')
-                block_value = json.dumps(block.to_dict()).encode('utf-8')
-                self.db.put(block_key, block_value)
-                if block.index > self.get_height():
-                    height_key = b'height'
-                    height_value = str(block.index).encode('utf-8')
-                    self.db.put(height_key, height_value)
-                status = True
-            self.blocks_lock.release()
+            sql_strings = list()
+            sql_strings.append('INSERT INTO blocks (hash, prevhash, height, nonce, timestamp)\
+                                VALUES ({}, {}, {}, {}, {})'\
+                .format(block.block_header.merkle_root, block.block_header.previous_hash, block.index,
+                        block.block_header.nonce, block.block_header.timestamp))
+            for transaction in block.transactions:
+                sql_strings.append('INSERT INTO transactions (hash, src, dest, amount, fee, timestamp, signature, type,\
+                                    blockHash) VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {})'\
+                    .format(transaction.tx_hash, transaction.source, transaction.destination, transaction.amount,
+                            transaction.fee, transaction.timestamp, transaction.signature, transaction.tx_type,
+                            block.block_header.merkle_root))
+            try:
+                with sqlite3.connect(config['user']['db']) as conn:
+                    cursor = conn.cursor()
+                    for sql in sql_strings:
+                        cursor.execute(sql)
+                    status = True
+            except sqlite3.OperationalError as err:
+                logger.error("Database Error: ", err.message)
         return status
 
     def get_transaction_history(self, address):
+        # TODO: convert this to return a generator
         transactions = []
-        for block in self.blocks:
-            for transaction in block.transactions:
-                if transaction.source == address or transaction.destination == address:
-                    transactions.append(transaction.to_json())
+        sql = 'SELECT * FROM transactions WHERE src={} OR dest={}'.format(address, address)
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            for transaction in cursor:
+                transactions.append(Transaction(transaction[1], transaction[2], transaction[3], transaction[4],
+                                                transaction[7], transaction[5], transaction[0], transaction[6]))
         return transactions
 
     def get_balance(self, address):
         balance = 0
-        for block in self.blocks:
-            for transaction in block.transactions:
-                if transaction.source == address:
-                    balance -= transaction.amount + transaction.fee
-                if transaction.destination == address:
-                    balance += transaction.amount
+        sql = 'SELECT src, dest, amount, fee FROM transactions WHERE src={} OR dest={}'.format(address, address)
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            for transaction in cursor:
+                if transaction[0] == address:
+                    balance -= transaction[2] + transaction[3]
+                else:
+                    balance += transaction[2]
         return balance
 
     def find_duplicate_transactions(self, transaction_hash):
-        for block in self.blocks:
-            for transaction in block.transactions:
-                if transaction.tx_hash == transaction_hash:
-                    return block.index
+        sql = 'SELECT COUNT(*) FROM transactions WHERE hash={}'.format(transaction_hash)
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            count = cursor.fetchone()[0]
+            if count > 0:
+                return True
         return False
-
-    def validate_chain(self):
-        try:
-            for block in self.blocks:
-                self.validate_block(block)
-        except BlockchainException as bce:
-            raise
-        return True
 
     def calculate_hash_difficulty(self, index=None):
         if index is None:
-            block = self.get_latest_block()
+            block = self.get_latest_block_header()[0]
             index = block.index
         else:
-            block = self.get_block_by_index(index)
+            block = self.get_block_header_by_height(index)[0]
 
         if block.index > self.DIFFICULTY_ADJUSTMENT_SPAN:
-            block_delta = self.get_block_by_index(index - self.DIFFICULTY_ADJUSTMENT_SPAN)
+            block_delta = self.get_block_header_by_height(index - self.DIFFICULTY_ADJUSTMENT_SPAN)
             timestamp_delta = block.block_header.timestamp - block_delta.block_header.timestamp
             # blocks were mined quicker than target
             if timestamp_delta < (self.TARGET_TIME_PER_BLOCK * self.DIFFICULTY_ADJUSTMENT_SPAN):
@@ -215,25 +223,57 @@ class Blockchain(object):
         return reward
 
     def get_height(self):
-        return int(self.db.get(b'height'))
+        sql = 'SELECT MAX(height) FROM blocks'
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            height = cursor.fetchone()[0]
+        return height
 
-    def get_latest_block(self):
-        block_key = self.db.get(b'height')
-        block_data = self.db.get(block_key)
-        return Block.from_dict(json.loads(block_data))
+    def get_latest_block_header(self):
+        block_headers = []
+        sql = 'SELECT * FROM blocks WHERE height = (SELECT MAX(height) FROM blocks)'
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            for block in cursor:
+                block_headers.append(BlockHeader(block[1], block[0], block[4], block[3]))
+        return block_headers
 
-    def get_block_by_index(self, index):
-        block_key = str(index).encode('utf-8')
-        block_data = self.db.get(block_key)
-        return Block.from_dict(json.loads(block_data))
+    def get_block_header_by_height(self, height):
+        block_headers = []
+        sql = 'SELECT * FROM blocks WHERE height={}'.format(height)
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            for block in cursor:
+                block_headers.append(BlockHeader(block[1], block[0], block[4], block[3]))
+        return block_headers
 
-    def get_all_blocks(self):
-        # TODO: refactor for leveldb. Use Snapshot
-        return self.blocks
+    def get_block_header_by_hash(self, block_hash):
+        sql = 'SELECT * FROM blocks WHERE hash={}'.format(block_hash)
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            block = cursor.fetchone()
+        return BlockHeader(block[1], block[0], block[4], block[3])
 
-    def get_blocks_range(self, start_index, stop_index):
-        # TODO: refactor for leveldb. Use Snapshot
-        return self.blocks[start_index:stop_index+1]
+    def get_all_block_headers_iter(self):
+        sql = 'SELECT * FROM blocks'
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            for block in cursor:
+                yield BlockHeader(block[1], block[0], block[4], block[3])
+
+    def get_block_headers_range_iter(self, start_height, stop_height):
+        sql = 'SELECT * FROM blocks WHERE height >= {} AND height <= {} ORDER BY height ASC'\
+            .format(start_height, stop_height)
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            for block in cursor:
+                yield BlockHeader(block[1], block[0], block[4], block[3])
 
     def __str__(self):
         return str(self.__dict__)

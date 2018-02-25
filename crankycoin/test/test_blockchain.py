@@ -1334,7 +1334,7 @@ class TestBlockchain(unittest.TestCase):
             subject = Blockchain()
             subject.blocks = [mock_block, mock_block, mock_block, latest_block]
 
-            block = subject.get_latest_block()
+            block = subject.get_latest_block_header()
 
             self.assertEqual(block, latest_block)
 
@@ -1342,7 +1342,7 @@ class TestBlockchain(unittest.TestCase):
         with patch.object(Blockchain, '__init__', return_value=None) as patched_init:
             subject = Blockchain()
 
-            block = subject.get_latest_block()
+            block = subject.get_latest_block_header()
 
             self.assertIsNone(block)
 
@@ -1354,7 +1354,7 @@ class TestBlockchain(unittest.TestCase):
             subject = Blockchain()
             subject.blocks = [mock_block_one, mock_block_two, mock_block_three]
 
-            block = subject.get_block_by_index(1)
+            block = subject.get_block_header_by_height(1)
 
             self.assertEqual(block, mock_block_two)
 
@@ -1366,7 +1366,7 @@ class TestBlockchain(unittest.TestCase):
             subject = Blockchain()
             subject.blocks = [mock_block_one, mock_block_two, mock_block_three]
 
-            block = subject.get_block_by_index(3)
+            block = subject.get_block_header_by_height(3)
 
             self.assertIsNone(block)
 

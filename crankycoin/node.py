@@ -1,7 +1,6 @@
 import grequests
 from klein import Klein
 from multiprocessing import Lock, Process
-import plyvel
 import requests
 from threading import Thread
 
@@ -91,8 +90,7 @@ class FullNode(NodeMixin):
         self.broadcast_node(host)
         self.full_nodes.add(host)
         self.mempool = Mempool()
-        self.leveldb = plyvel.DB(config['user']['leveldb_path'], create_if_missing=True)
-        self.blockchain = Blockchain(self.leveldb)
+        self.blockchain = Blockchain()
 
         logger.debug("full node server starting on %s with reward address of %s...", host, reward_address)
         self.node_process = Process(target=self.app.run, args=(host, self.FULL_NODE_PORT))
@@ -229,7 +227,7 @@ class FullNode(NodeMixin):
         return
 
     def mine_block(self, reward_address):
-        latest_block = self.blockchain.get_latest_block()
+        latest_block = self.blockchain.get_latest_block_header()
         new_block_id = latest_block.index + 1
         previous_hash = latest_block.current_hash
 
@@ -255,7 +253,7 @@ class FullNode(NodeMixin):
         block = Block(new_block_id, transactions, previous_hash, timestamp)
 
         while not self.exit_flag and block.hash_difficulty < self.blockchain.calculate_hash_difficulty():
-            latest_block = self.blockchain.get_latest_block()
+            latest_block = self.blockchain.get_latest_block_header()
             if latest_block.index >= new_block_id or latest_block.current_hash != previous_hash:
                 # Next block in sequence was mined by another node.  Stop mining current block.
                 return None
@@ -333,7 +331,7 @@ class FullNode(NodeMixin):
         pass
 
     def synchronize(self):
-        my_latest_block = self.blockchain.get_latest_block()
+        my_latest_block = self.blockchain.get_latest_block_header()
         """
         latest_blocks = {
             index1 : {
@@ -397,7 +395,7 @@ class FullNode(NodeMixin):
                             # step backwards and look for the first remote block that fits the local chain
                             block = self.request_block(remote_host, self.FULL_NODE_PORT, str(i))
                             remote_diff_blocks[0:0] = [block]
-                            if block.block_header.previous_hash == self.blockchain.get_block_by_index(i-1):
+                            if block.block_header.previous_hash == self.blockchain.get_block_header_by_height(i-1):
                                 # found the fork
                                 result = self.blockchain.alter_chain(remote_diff_blocks)
                                 success = result
@@ -483,7 +481,7 @@ class FullNode(NodeMixin):
         if block.current_hash != remote_block['current_hash']:
             request.setResponseCode(406)  # not acceptable
             return json.dumps({'message': 'block rejected due to invalid hash'})
-        my_latest_block = self.blockchain.get_latest_block()
+        my_latest_block = self.blockchain.get_latest_block_header()
 
         if block.index > my_latest_block.index + 1:
             # new block index is greater than ours
@@ -510,7 +508,7 @@ class FullNode(NodeMixin):
                     # step backwards and look for the first remote block that fits the local chain
                     block = self.request_block(remote_host, self.FULL_NODE_PORT, str(i))
                     remote_diff_blocks[0:0] = [block]
-                    if block.block_header.previous_hash == self.blockchain.get_block_by_index(i-1):
+                    if block.block_header.previous_hash == self.blockchain.get_block_header_by_height(i-1):
                         # found the fork
                         result = self.blockchain.alter_chain(remote_diff_blocks)
                         if not result:
@@ -543,9 +541,9 @@ class FullNode(NodeMixin):
     @app.route('/blocks/<block_id>', methods=['GET'])
     def get_block(self, request, block_id):
         if block_id == "latest":
-            block = self.blockchain.get_latest_block()
+            block = self.blockchain.get_latest_block_header()
         else:
-            block = self.blockchain.get_block_by_index(int(block_id))
+            block = self.blockchain.get_block_header_by_height(int(block_id))
         if block is None:
             request.setResponseCode(404)
             return json.dumps({'success': False, 'reason': 'Block Not Found'})
