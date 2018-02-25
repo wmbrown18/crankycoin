@@ -10,8 +10,10 @@ from errors import *
 
 class BlockHeader(object):
 
-    def __init__(self, previous_hash, merkle_root, timestamp=None, nonce=0):
-        self.version = config['network']['version']
+    def __init__(self, previous_hash, merkle_root, timestamp=None, nonce=0, version=None):
+        self.version = None
+        if version is None:
+            self.version = config['network']['version']
         self.previous_hash = previous_hash
         self.merkle_root = merkle_root
         self.nonce = nonce
@@ -48,10 +50,10 @@ class Block(object):
 
     transactions = []
 
-    def __init__(self, index, transactions, previous_hash, timestamp=None, nonce=0):
+    def __init__(self, height, transactions, previous_hash, timestamp=None, nonce=0):
         """
-        :param index: index # of block
-        :type index: int
+        :param height: height # of block
+        :type height: int
         :param transactions: list of transactions
         :type transactions: list of transaction objects
         :param previous_hash: previous block hash
@@ -59,15 +61,15 @@ class Block(object):
         :param timestamp: timestamp of block mined
         :type timestamp: int
         """
-        self._index = index
+        self._height = height
         self._transactions = transactions
         merkle_root = self._calculate_merkle_root()
         self.block_header = BlockHeader(previous_hash, merkle_root, timestamp, nonce)
         self._current_hash = self._calculate_block_hash()
 
     @property
-    def index(self):
-        return self._index
+    def height(self):
+        return self._height
 
     @property
     def transactions(self):
@@ -103,7 +105,7 @@ class Block(object):
 
     def _calculate_merkle_root(self):
         if len(self._transactions) < 1:
-            raise InvalidTransactions(self._index, "Zero transactions in block. Coinbase transaction required")
+            raise InvalidTransactions(self._height, "Zero transactions in block. Coinbase transaction required")
         merkle_base = [t.tx_hash for t in self._transactions]
         while len(merkle_base) > 1:
             temp_merkle_base = []
@@ -137,7 +139,7 @@ class Block(object):
     @classmethod
     def from_dict(cls, block_dict):
         return cls(
-            block_dict['index'],
+            block_dict['height'],
             [Transaction(
                 transaction['source'],
                 transaction['destination'],
@@ -152,7 +154,7 @@ class Block(object):
         )
 
     def __repr__(self):
-        return "<Block {}>".format(self._index)
+        return "<Block {}>".format(self._height)
 
     def __str__(self):
         return str(self.__dict__)

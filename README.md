@@ -38,6 +38,6 @@ Re-enter your passphrase:
 ```
 Secret:
 Encrypted private key:
-*copy your encrypted private key*
 ```
+*copy your encrypted private key*
 

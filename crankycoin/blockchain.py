@@ -1,11 +1,11 @@
 from math import floor
 from multiprocessing import Lock
 import sqlite3
-import time
 
-from block import *
+from config import *
+from crankycoin import BlockHeader, Block
+from crankycoin import Transaction
 from errors import *
-from transaction import *
 
 
 class Blockchain(object):
@@ -18,60 +18,45 @@ class Blockchain(object):
     DIFFICULTY_ADJUSTMENT_SPAN = config['network']['difficulty_adjustment_span']
     SIGNIFICANT_DIGITS = config['network']['significant_digits']
 
-    def get_genesis_block(self):
-        genesis_transaction_one = Transaction(
-            "0",
-            "03dd1e57d05d9cab1d8d9b727568ad951ac2d9ecd082bc36f69e021b8427812924",
-            500000,
-            0,
-            ""
-        )
-        genesis_transaction_two = Transaction(
-            "0",
-            "03dd1eff6aa6cfb98d8a93782d7a4f933dbd2cd7d7af72c97349ae21816cfc85ed",
-            500000,
-            0,
-            ""
-        )
-        genesis_transactions = [genesis_transaction_one, genesis_transaction_two]
-        genesis_block = Block(0, genesis_transactions, "", 0)
-        return genesis_block
-
     def __init__(self):
         self.blocks_lock = Lock()
-        if self.get_height() is None:
-            genesis_block = self.get_genesis_block()
-            self.add_block(genesis_block, validate=False)
+        self.db_init()
 
-    def _check_genesis_block(self, block):
-        if block != self.get_genesis_block():
-            raise GenesisBlockMismatch(block.index, "Genesis Block Mismatch: {}".format(block))
+    def db_init(self):
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(blocks)")
+            if len(cursor.fetchall()) > 0:
+                return
+            sql = open('config/init.sql', 'r').read()
+            cursor = conn.cursor()
+            cursor.executescript(sql)
         return
 
     def _check_hash_and_hash_pattern(self, block):
         hash_difficulty = self.calculate_hash_difficulty()
         if block.current_hash[:hash_difficulty].count('0') != hash_difficulty:
-            raise InvalidHash(block.index, "Incompatible Block Hash: {}".format(block.current_hash))
+            raise InvalidHash(block.height, "Incompatible Block Hash: {}".format(block.current_hash))
         return
 
-    def _check_index_and_previous_hash(self, block):
+    def _check_height_and_previous_hash(self, block):
         latest_block = self.get_latest_block_header()
-        if latest_block.index != block.index - 1:
-            raise ChainContinuityError(block.index, "Incompatible block index: {}".format(block.index-1))
+        if latest_block.height != block.height - 1:
+            raise ChainContinuityError(block.height, "Incompatible block height: {}".format(block.height-1))
         if latest_block.current_hash != block.block_header.previous_hash:
-            raise ChainContinuityError(block.index, "Incompatible block hash: {} and hash: {}".format(block.index-1, block.block_header.previous_hash))
+            raise ChainContinuityError(block.height, "Incompatible block hash: {} and hash: {}".format(block.height-1, block.block_header.previous_hash))
         return
 
     def _check_transactions_and_block_reward(self, block):
         # transactions : list of transactions
         # transaction : Transaction(source, destination, amount, fee, signature)
-        reward_amount = self.get_reward(block.index)
+        reward_amount = self.get_reward(block.height)
         payers = dict()
         for transaction in block.transactions[1:0]:
             if self.find_duplicate_transactions(transaction.tx_hash):
-                raise InvalidTransactions(block.index, "Transactions not valid.  Duplicate transaction detected")
+                raise InvalidTransactions(block.height, "Transactions not valid.  Duplicate transaction detected")
             if not transaction.verify():
-                raise InvalidTransactions(block.index, "Transactions not valid.  Invalid Transaction signature")
+                raise InvalidTransactions(block.height, "Transactions not valid.  Invalid Transaction signature")
             if transaction.source in payers:
                 payers[transaction.source] += transaction.amount + transaction.fee
             else:
@@ -80,28 +65,24 @@ class Blockchain(object):
         for key in payers:
             balance = self.get_balance(key)
             if payers[key] > balance:
-                raise InvalidTransactions(block.index, "Transactions not valid.  Insufficient funds")
+                raise InvalidTransactions(block.height, "Transactions not valid.  Insufficient funds")
         # first transaction is coinbase
         reward_transaction = block.transactions[0]
         if reward_transaction.amount != reward_amount or reward_transaction.source != "0":
-            raise InvalidTransactions(block.index, "Transactions not valid.  Incorrect block reward")
+            raise InvalidTransactions(block.height, "Transactions not valid.  Incorrect block reward")
         return
 
     def validate_block(self, block):
         # verify genesis block integrity
         try:
-            # if genesis block, check if block is correct
-            if block.index == 0:
-                self._check_genesis_block(block)
-                return True
             # current hash of data is correct and hash satisfies pattern
             self._check_hash_and_hash_pattern(block)
-            # block index is correct and previous hash is correct
-            self._check_index_and_previous_hash(block)
-            # block reward is correct based on block index and halving formula
+            # block height is correct and previous hash is correct
+            self._check_height_and_previous_hash(block)
+            # block reward is correct based on block height and halving formula
             self._check_transactions_and_block_reward(block)
         except BlockchainException as bce:
-            logger.warning("Validation Error (block id: %s): %s", bce.index, bce.message)
+            logger.warning("Validation Error (block id: %s): %s", bce.height, bce.message)
             return False
         return True
 
@@ -120,7 +101,7 @@ class Blockchain(object):
 
     def alter_chain(self, blocks):
         # TODO: Deprecate?
-        fork_start = blocks[0].index
+        fork_start = blocks[0].height
         alternate_blocks = self.blocks[0:fork_start]
         alternate_blocks.extend(blocks)
         alternate_chain = Blockchain(alternate_blocks)
@@ -139,16 +120,16 @@ class Blockchain(object):
         status = False
         if not validate or self.validate_block(block):
             sql_strings = list()
-            sql_strings.append('INSERT INTO blocks (hash, prevhash, height, nonce, timestamp)\
-                                VALUES ({}, {}, {}, {}, {})'\
-                .format(block.block_header.merkle_root, block.block_header.previous_hash, block.index,
-                        block.block_header.nonce, block.block_header.timestamp))
+            sql_strings.append('INSERT INTO blocks (hash, prevhash, merkleRoot, height, nonce, timestamp, version)\
+                VALUES ({}, {}, {}, {}, {}, {}, {})'.format(block.current_hash, block.block_header.previous_hash, 
+                    block.block_header.merkle_root, block.height, block.block_header.nonce, block.block_header.timestamp, 
+                    block.block_header.version))
             for transaction in block.transactions:
                 sql_strings.append('INSERT INTO transactions (hash, src, dest, amount, fee, timestamp, signature, type,\
-                                    blockHash) VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {})'\
-                    .format(transaction.tx_hash, transaction.source, transaction.destination, transaction.amount,
-                            transaction.fee, transaction.timestamp, transaction.signature, transaction.tx_type,
-                            block.block_header.merkle_root))
+                    blockHash, asset, data) VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})'.format(
+                        transaction.tx_hash, transaction.source, transaction.destination, transaction.amount,
+                        transaction.fee, transaction.timestamp, transaction.signature, transaction.tx_type,
+                        block.current_hash, transaction.asset, transaction.data))
             try:
                 with sqlite3.connect(config['user']['db']) as conn:
                     cursor = conn.cursor()
@@ -168,12 +149,38 @@ class Blockchain(object):
             cursor.execute(sql)
             for transaction in cursor:
                 transactions.append(Transaction(transaction[1], transaction[2], transaction[3], transaction[4],
-                                                transaction[7], transaction[5], transaction[0], transaction[6]))
+                                    tx_type=transaction[7], timestamp=transaction[5], tx_hash=transaction[0],
+                                    signature=transaction[6], asset=transaction[8], data=transaction[9]))
         return transactions
 
-    def get_balance(self, address):
+    def get_transactions_by_block_hash(self, block_hash):
+        transactions = []
+        sql = 'SELECT * FROM transactions WHERE blockHash='.format(block_hash)
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            for transaction in cursor:
+                transactions.append(Transaction(transaction[1], transaction[2], transaction[3], transaction[4],
+                                    tx_type=transaction[7], timestamp=transaction[5], tx_hash=transaction[0],
+                                    signature=transaction[6], asset=transaction[8], data=transaction[9]))
+        return transactions
+
+    def get_transaction_by_hash(self, transaction_hash):
+        sql = 'SELECT * FROM transactions WHERE hash={}'.format(transaction_hash)
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            transaction = cursor.fetchone()
+        return Transaction(transaction[1], transaction[2], transaction[3], transaction[4], tx_type=transaction[7],
+                           timestamp=transaction[5], tx_hash=transaction[0], signature=transaction[6],
+                           asset=transaction[8], data=transaction[9])
+
+    def get_balance(self, address, asset=None):
+        if asset is None:
+            asset = '29bb7eb4fa78fc709e1b8b88362b7f8cb61d9379667ad4aedc8ec9f664e16680'
         balance = 0
-        sql = 'SELECT src, dest, amount, fee FROM transactions WHERE src={} OR dest={}'.format(address, address)
+        sql = 'SELECT src, dest, amount, fee FROM transactions WHERE (src={} OR dest={}) AND asset={} AND type < 3'\
+            .format(address, address, asset)
         with sqlite3.connect(config['user']['db']) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
@@ -194,15 +201,15 @@ class Blockchain(object):
                 return True
         return False
 
-    def calculate_hash_difficulty(self, index=None):
-        if index is None:
+    def calculate_hash_difficulty(self, height=None):
+        if height is None:
             block = self.get_latest_block_header()[0]
-            index = block.index
+            height = block.height
         else:
-            block = self.get_block_header_by_height(index)[0]
+            block = self.get_block_header_by_height(height)[0]
 
-        if block.index > self.DIFFICULTY_ADJUSTMENT_SPAN:
-            block_delta = self.get_block_header_by_height(index - self.DIFFICULTY_ADJUSTMENT_SPAN)
+        if block.height > self.DIFFICULTY_ADJUSTMENT_SPAN:
+            block_delta = self.get_block_header_by_height(height - self.DIFFICULTY_ADJUSTMENT_SPAN)
             timestamp_delta = block.block_header.timestamp - block_delta.block_header.timestamp
             # blocks were mined quicker than target
             if timestamp_delta < (self.TARGET_TIME_PER_BLOCK * self.DIFFICULTY_ADJUSTMENT_SPAN):
@@ -215,10 +222,10 @@ class Blockchain(object):
         # not enough blocks were mined for an adjustment
         return self.MINIMUM_HASH_DIFFICULTY
 
-    def get_reward(self, index):
+    def get_reward(self, height):
         precision = pow(10, self.SIGNIFICANT_DIGITS)
         reward = self.INITIAL_COINS_PER_BLOCK
-        for i in range(1, ((index / self.HALVING_FREQUENCY) + 1)):
+        for i in range(1, ((height / self.HALVING_FREQUENCY) + 1)):
             reward = floor((reward / 2.0) * precision) / precision
         return reward
 
@@ -237,7 +244,7 @@ class Blockchain(object):
             cursor = conn.cursor()
             cursor.execute(sql)
             for block in cursor:
-                block_headers.append(BlockHeader(block[1], block[0], block[4], block[3]))
+                block_headers.append(BlockHeader(block[1], block[2], block[5], block[4], block[6]))
         return block_headers
 
     def get_block_header_by_height(self, height):
@@ -247,7 +254,7 @@ class Blockchain(object):
             cursor = conn.cursor()
             cursor.execute(sql)
             for block in cursor:
-                block_headers.append(BlockHeader(block[1], block[0], block[4], block[3]))
+                block_headers.append(BlockHeader(block[1], block[2], block[5], block[4], block[6]))
         return block_headers
 
     def get_block_header_by_hash(self, block_hash):
@@ -256,7 +263,7 @@ class Blockchain(object):
             cursor = conn.cursor()
             cursor.execute(sql)
             block = cursor.fetchone()
-        return BlockHeader(block[1], block[0], block[4], block[3])
+        return BlockHeader(block[1], block[2], block[5], block[4], block[6])
 
     def get_all_block_headers_iter(self):
         sql = 'SELECT * FROM blocks'
@@ -264,7 +271,7 @@ class Blockchain(object):
             cursor = conn.cursor()
             cursor.execute(sql)
             for block in cursor:
-                yield BlockHeader(block[1], block[0], block[4], block[3])
+                yield BlockHeader(block[1], block[2], block[5], block[4], block[6])
 
     def get_block_headers_range_iter(self, start_height, stop_height):
         sql = 'SELECT * FROM blocks WHERE height >= {} AND height <= {} ORDER BY height ASC'\
@@ -273,7 +280,7 @@ class Blockchain(object):
             cursor = conn.cursor()
             cursor.execute(sql)
             for block in cursor:
-                yield BlockHeader(block[1], block[0], block[4], block[3])
+                yield BlockHeader(block[1], block[2], block[5], block[4], block[6])
 
     def __str__(self):
         return str(self.__dict__)

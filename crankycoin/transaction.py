@@ -3,23 +3,33 @@ import hashlib
 import json
 import time
 
+from config import *
 from errors import *
 
 
 class Transaction(object):
 
-    def __init__(self, source, destination, amount, fee, tx_type=1, timestamp=None, tx_hash=None, signature=None):
+    def __init__(self, source, destination, amount, fee, tx_type=2, timestamp=None, tx_hash=None, asset=None,
+                 data=None, signature=None):
+        """
+        tx_type: 0=genesis, 1=coinbase, 2=standard, 3=asset creation
+        """
         self._source = source
         self._destination = destination
         self._amount = amount
         self._fee = fee
-        if timestamp is None:
-            self._timestamp = int(time.time())
+        self._timestamp = timestamp
         self._signature = signature
         self._tx_hash = tx_hash
         self._tx_type = tx_type
+        self._asset = asset
+        self._data = data
         if tx_hash is None and signature is not None:
             self._tx_hash = self._calculate_tx_hash()
+        if timestamp is None:
+            self._timestamp = int(time.time())
+        if asset is None:
+            self._asset = '29bb7eb4fa78fc709e1b8b88362b7f8cb61d9379667ad4aedc8ec9f664e16680'
 
     @property
     def source(self):
@@ -50,6 +60,14 @@ class Transaction(object):
         return self._tx_type
 
     @property
+    def asset(self):
+        return self._asset
+
+    @property
+    def data(self):
+        return self._data
+
+    @property
     def signature(self):
         return self._signature
 
@@ -67,6 +85,8 @@ class Transaction(object):
             "fee": self._fee,
             "timestamp": self._timestamp,
             "tx_type": self._tx_type,
+            "asset": self._asset,
+            "data": self.data,
             "signature": self._signature
         }
         data_json = json.dumps(data, sort_keys=True)
