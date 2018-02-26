@@ -60,12 +60,13 @@ class Client(NodeMixin):
             pass
         return None
 
-    def create_transaction(self, to, amount, fee):
+    def create_transaction(self, to, amount, fee, prev_hash):
         transaction = Transaction(
             self.get_public_key(),
             to,
             amount,
-            fee
+            fee,
+            prev_hash=prev_hash
         )
         transaction.sign(self.get_private_key())
         return self.broadcast_transaction(transaction)

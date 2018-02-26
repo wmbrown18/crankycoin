@@ -1,0 +1,62 @@
+Attack Vectors
+==============
+Sybil Attack:
+On-chain registry (PoC)
+
+Double-spend Attack:
+Calculated account balances rather than UTXO (Bitcoin)
+Unique transaction hashes of signed transactions includes wallet generated transaction timestamp
+Duplicate transaction hashes are rejected - transactions of the same amount, sent the same recipient at with the exact same timestamp are not allowed
+Confirmations
+Previous transaction hash rather than using an incremental nonce (Ethereum)
+
+Replay Attack:
+Prefixed wallet addresses
+
+PoW
+===
+Scrypt N=1024,r=1,p=1,dkLen=32
+
+Hash Difficulty Adjustment
+==========================
+block_delta = self.get_block_header_by_height(height - self.DIFFICULTY_ADJUSTMENT_SPAN)
+timestamp_delta = block.block_header.timestamp - block_delta.block_header.timestamp
+# blocks were mined quicker than target
+if timestamp_delta < (self.TARGET_TIME_PER_BLOCK * self.DIFFICULTY_ADJUSTMENT_SPAN):
+	return block.hash_difficulty + 1
+# blocks were mined slower than target
+elif timestamp_delta > (self.TARGET_TIME_PER_BLOCK * self.DIFFICULTY_ADJUSTMENT_SPAN):
+	return block.hash_difficulty - 1
+# blocks were mined within the target time window
+return block.hash_difficulty
+
+Wallet
+======
+ECC variant SECP256k1 with Prefix to distinguish Mainnet and Testnet(s)
+
+Uncle Blocks
+============
+stored with incrementing branch number in DB (not in block data)
+All blocks will only be stored if there is a stored block with the hash matching the new block's previous hash.  If a block of that height exists, the branch number is incremented by 1.  Uncle blocks will be omitted (and pruned in the future) if the uncle block's height is less than 6 below the main branch present height
+
+Uncle Transactions
+==================
+Transactions are stored in a similar fashion.  Primary keys are compounded with the transaction hash and branch number as the only guarantee for uniqueness sinc uncle blocks may reference the same transaction
+
+Longest Chain
+=============
+In the event that an uncle branch grows taller than the main branch, the branch numbers are swapped for blocks and transactions
+
+Persistence Engine
+==================
+SQLite is used.  DB that's fast enough, process-safe, thread-safe, doesn't require a separate standalone DB, convenient advanced query language, context manager for transactions, built-in locking
+
+Proof of Collaboration
+======================
+*Future*
+Eliminate miners fighting over a block
+On-chain registry
+
+Asset Transactions
+==================
+Transactions include an asset type.  The default asset type is the sha256 sum of the string "Cranky Coin".  New assets can be registered by submitting a transaction with a registration type enumerated value.  Hereinafter, the registrant owns that asset and may transact that asset though fees remain in the native asset type - Cranky Coin.

@@ -145,7 +145,12 @@ class Block(object):
                 transaction['destination'],
                 transaction['amount'],
                 transaction['fee'],
-                transaction['signature'])
+                tx_type=transaction['tx_type'],
+                timestamp=transaction['timestamp'],
+                asset=transaction['asset'],
+                data=transaction['data'],
+                prev_hash=transaction['prev_hash'],
+                signature=transaction['signature'])
              for transaction in block_dict['transactions']
              ],
             block_dict['previous_hash'],

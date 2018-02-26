@@ -88,7 +88,7 @@ class Blockchain(object):
 
     def validate_transaction(self, transaction):
         if self.find_duplicate_transactions(transaction.tx_hash):
-            logger.warn('Transaction not valid.  Replay transaction detected: {}'.format(transaction.tx_hash))
+            logger.warn('Transaction not valid.  Double-spend detected: {}'.format(transaction.tx_hash))
             return False
         if not transaction.verify():
             logger.warn('Transaction not valid.  Invalid transaction signature: {}'.format(transaction.tx_hash))
@@ -122,7 +122,7 @@ class Blockchain(object):
             sql_strings = list()
             sql_strings.append('INSERT INTO blocks (hash, prevhash, merkleRoot, height, nonce, timestamp, version)\
                 VALUES ({}, {}, {}, {}, {}, {}, {})'.format(block.current_hash, block.block_header.previous_hash, 
-                    block.block_header.merkle_root, block.height, block.block_header.nonce, block.block_header.timestamp, 
+                    block.block_header.merkle_root, block.height, block.block_header.nonce, block.block_header.timestamp,
                     block.block_header.version))
             for transaction in block.transactions:
                 sql_strings.append('INSERT INTO transactions (hash, src, dest, amount, fee, timestamp, signature, type,\
@@ -140,10 +140,10 @@ class Blockchain(object):
                 logger.error("Database Error: ", err.message)
         return status
 
-    def get_transaction_history(self, address):
+    def get_transaction_history(self, address, branch=0):
         # TODO: convert this to return a generator
         transactions = []
-        sql = 'SELECT * FROM transactions WHERE src={} OR dest={}'.format(address, address)
+        sql = 'SELECT * FROM transactions WHERE (src={} OR dest={}) AND branch={}'.format(address, address, branch)
         with sqlite3.connect(config['user']['db']) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
@@ -175,12 +175,12 @@ class Blockchain(object):
                            timestamp=transaction[5], tx_hash=transaction[0], signature=transaction[6],
                            asset=transaction[8], data=transaction[9])
 
-    def get_balance(self, address, asset=None):
+    def get_balance(self, address, asset=None, branch=0):
         if asset is None:
             asset = '29bb7eb4fa78fc709e1b8b88362b7f8cb61d9379667ad4aedc8ec9f664e16680'
         balance = 0
-        sql = 'SELECT src, dest, amount, fee FROM transactions WHERE (src={} OR dest={}) AND asset={} AND type < 3'\
-            .format(address, address, asset)
+        sql = 'SELECT src, dest, amount, fee FROM transactions WHERE (src={} OR dest={}) AND asset={} AND branch={} \
+            AND type < 3'.format(address, address, asset, branch)
         with sqlite3.connect(config['user']['db']) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
@@ -236,6 +236,14 @@ class Blockchain(object):
             cursor.execute(sql)
             height = cursor.fetchone()[0]
         return height
+
+    def get_branch_by_hash(self, block_hash):
+        sql = 'SELECT branch FROM blocks WHERE hash={}'.format(block_hash)
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            branch = cursor.fetchone()
+        return branch[0]
 
     def get_latest_block_header(self):
         block_headers = []

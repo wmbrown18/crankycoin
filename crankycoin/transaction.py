@@ -9,8 +9,8 @@ from errors import *
 
 class Transaction(object):
 
-    def __init__(self, source, destination, amount, fee, tx_type=2, timestamp=None, tx_hash=None, asset=None,
-                 data=None, signature=None):
+    def __init__(self, source, destination, amount, fee, prev_hash='0', tx_type=2, timestamp=None, tx_hash=None,
+                 asset=None, data="", signature=None):
         """
         tx_type: 0=genesis, 1=coinbase, 2=standard, 3=asset creation
         """
@@ -24,6 +24,7 @@ class Transaction(object):
         self._tx_type = tx_type
         self._asset = asset
         self._data = data
+        self._prev_hash = prev_hash
         if tx_hash is None and signature is not None:
             self._tx_hash = self._calculate_tx_hash()
         if timestamp is None:
@@ -86,7 +87,8 @@ class Transaction(object):
             "timestamp": self._timestamp,
             "tx_type": self._tx_type,
             "asset": self._asset,
-            "data": self.data,
+            "data": self._data,
+            "prev_hash": self._prev_hash,
             "signature": self._signature
         }
         data_json = json.dumps(data, sort_keys=True)
@@ -106,7 +108,10 @@ class Transaction(object):
             str(self._amount),
             str(self._fee),
             str(self._timestamp),
-            str(self._tx_type)
+            str(self._tx_type),
+            self._asset,
+            self._data,
+            self._prev_hash
         ))
 
     def verify(self):

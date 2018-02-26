@@ -435,7 +435,12 @@ class FullNode(NodeMixin):
             body['transaction']['destination'],
             body['transaction']['amount'],
             body['transaction']['fee'],
-            body['transaction']['signature'])
+            prev_hash=['transaction']['prev_hash'],
+            tx_type=body['transaction']['tx_type'],
+            timestamp=['transaction']['timestamp'],
+            asset=['transaction']['asset'],
+            data=['transaction']['data'],
+            signature=['transaction']['signature'])
         if transaction.tx_hash != body['transaction']['tx_hash']:
             logger.warn("Invalid transaction hash: {} should be {}".format(body['transaction']['tx_hash'], transaction.tx_hash))
             request.setResponseCode(406)
