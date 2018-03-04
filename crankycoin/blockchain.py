@@ -17,6 +17,7 @@ class Blockchain(object):
     TARGET_TIME_PER_BLOCK = config['network']['target_time_per_block']
     DIFFICULTY_ADJUSTMENT_SPAN = config['network']['difficulty_adjustment_span']
     SIGNIFICANT_DIGITS = config['network']['significant_digits']
+    SHORT_CHAIN_TOLERANCE = config['network']['short_chain_tolerance']
 
     def __init__(self):
         self.blocks_lock = Lock()
@@ -32,72 +33,6 @@ class Blockchain(object):
             cursor = conn.cursor()
             cursor.executescript(sql)
         return
-
-    def _check_hash_and_hash_pattern(self, block):
-        hash_difficulty = self.calculate_hash_difficulty()
-        if block.current_hash[:hash_difficulty].count('0') != hash_difficulty:
-            raise InvalidHash(block.height, "Incompatible Block Hash: {}".format(block.current_hash))
-        return
-
-    def _check_height_and_previous_hash(self, block):
-        latest_block = self.get_latest_block_header()
-        if latest_block.height != block.height - 1:
-            raise ChainContinuityError(block.height, "Incompatible block height: {}".format(block.height-1))
-        if latest_block.current_hash != block.block_header.previous_hash:
-            raise ChainContinuityError(block.height, "Incompatible block hash: {} and hash: {}".format(block.height-1, block.block_header.previous_hash))
-        return
-
-    def _check_transactions_and_block_reward(self, block):
-        # transactions : list of transactions
-        # transaction : Transaction(source, destination, amount, fee, signature)
-        reward_amount = self.get_reward(block.height)
-        payers = dict()
-        for transaction in block.transactions[1:0]:
-            if self.find_duplicate_transactions(transaction.tx_hash):
-                raise InvalidTransactions(block.height, "Transactions not valid.  Duplicate transaction detected")
-            if not transaction.verify():
-                raise InvalidTransactions(block.height, "Transactions not valid.  Invalid Transaction signature")
-            if transaction.source in payers:
-                payers[transaction.source] += transaction.amount + transaction.fee
-            else:
-                payers[transaction.source] = transaction.amount + transaction.fee
-            reward_amount += transaction.fee
-        for key in payers:
-            balance = self.get_balance(key)
-            if payers[key] > balance:
-                raise InvalidTransactions(block.height, "Transactions not valid.  Insufficient funds")
-        # first transaction is coinbase
-        reward_transaction = block.transactions[0]
-        if reward_transaction.amount != reward_amount or reward_transaction.source != "0":
-            raise InvalidTransactions(block.height, "Transactions not valid.  Incorrect block reward")
-        return
-
-    def validate_block(self, block):
-        # verify genesis block integrity
-        try:
-            # current hash of data is correct and hash satisfies pattern
-            self._check_hash_and_hash_pattern(block)
-            # block height is correct and previous hash is correct
-            self._check_height_and_previous_hash(block)
-            # block reward is correct based on block height and halving formula
-            self._check_transactions_and_block_reward(block)
-        except BlockchainException as bce:
-            logger.warning("Validation Error (block id: %s): %s", bce.height, bce.message)
-            return False
-        return True
-
-    def validate_transaction(self, transaction):
-        if self.find_duplicate_transactions(transaction.tx_hash):
-            logger.warn('Transaction not valid.  Double-spend detected: {}'.format(transaction.tx_hash))
-            return False
-        if not transaction.verify():
-            logger.warn('Transaction not valid.  Invalid transaction signature: {}'.format(transaction.tx_hash))
-            return False
-        balance = self.get_balance(transaction.source)
-        if transaction.amount + transaction.fee > balance:
-            logger.warn('Transaction not valid.  Insufficient funds: {}'.format(transaction.tx_hash))
-            return False
-        return True
 
     def alter_chain(self, blocks):
         # TODO: Deprecate?
@@ -116,29 +51,83 @@ class Blockchain(object):
                 self.blocks_lock.release()
         return status
 
-    def add_block(self, block, validate=True):
+    def add_block(self, block):
         status = False
-        if not validate or self.validate_block(block):
-            sql_strings = list()
-            sql_strings.append('INSERT INTO blocks (hash, prevhash, merkleRoot, height, nonce, timestamp, version)\
-                VALUES ({}, {}, {}, {}, {}, {}, {})'.format(block.current_hash, block.block_header.previous_hash, 
-                    block.block_header.merkle_root, block.height, block.block_header.nonce, block.block_header.timestamp,
-                    block.block_header.version))
-            for transaction in block.transactions:
-                sql_strings.append('INSERT INTO transactions (hash, src, dest, amount, fee, timestamp, signature, type,\
-                    blockHash, asset, data) VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})'.format(
-                        transaction.tx_hash, transaction.source, transaction.destination, transaction.amount,
-                        transaction.fee, transaction.timestamp, transaction.signature, transaction.tx_type,
-                        block.current_hash, transaction.asset, transaction.data))
-            try:
-                with sqlite3.connect(config['user']['db']) as conn:
-                    cursor = conn.cursor()
-                    for sql in sql_strings:
-                        cursor.execute(sql)
-                    status = True
-            except sqlite3.OperationalError as err:
-                logger.error("Database Error: ", err.message)
+        branch = self.get_branch_by_hash(block.block_header.previous_hash)
+        max_height = self.get_height()
+        if block.height > max_height:
+            # we're working on the tallest branch
+            if branch > 0:
+                # if an alternate branch is the tallest branch, it becomes our primary branch
+                self.restructure_primary_branch(branch)
+                branch = 0
+        else:
+            # we're not on the tallest branch, so there could be a split here
+            competing_branches = self.get_branches_by_prevhash(block.block_header.previous_hash)
+            if competing_branches and branch in competing_branches:
+                branch = self.get_new_branch_number(block.block_header.hash, block.height)
+
+        sql_strings = list()
+        sql_strings.append('INSERT INTO blocks (hash, prevhash, merkleRoot, height, nonce, timestamp, version, branch)\
+            VALUES ({}, {}, {}, {}, {}, {}, {}, {})'.format(block.block_header.hash, block.block_header.previous_hash,
+                block.block_header.merkle_root, block.height, block.block_header.nonce, block.block_header.timestamp,
+                block.block_header.version, branch))
+        for transaction in block.transactions:
+            sql_strings.append('INSERT INTO transactions (hash, src, dest, amount, fee, timestamp, signature, type,\
+                blockHash, asset, data, branch, prevHash) VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},\
+                {})'.format(
+                    transaction.tx_hash, transaction.source, transaction.destination, transaction.amount,
+                    transaction.fee, transaction.timestamp, transaction.signature, transaction.tx_type,
+                    block.block_header.hash, transaction.asset, transaction.data, branch, transaction.prev_hash))
+        sql_strings.append('UPDATE branches SET currentHash = {}, currentHeight = {} WHERE id = {}'
+                           .format(block.block_header.hash, block.height, branch))
+
+        try:
+            with sqlite3.connect(config['user']['db']) as conn:
+                cursor = conn.cursor()
+                for sql in sql_strings:
+                    cursor.execute(sql)
+                status = True
+        except sqlite3.OperationalError as err:
+            logger.error("Database Error: ", err.message)
         return status
+
+    def get_new_branch_number(self, block_hash, height):
+        sql = 'INSERT INTO branches (currentHash, currentHeight) VALUES ({}, {})'.format(block_hash, height)
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            return cursor.lastrowid
+
+    def prune(self):
+        raise NotImplementedError()
+
+    def restructure_primary_branch(self, branch):
+        block_header, block_branch, block_height = self.get_tallest_block_header(branch=branch)
+        alt_branch_hashes = []
+        stop_height = block_height
+        start_height = block_height
+        eob = False
+        while not eob:
+            block_header, block_branch, block_height = self.get_block_header_by_hash(block_header.previous_hash)
+            if block_branch > 0:
+                # Still in alternate branch.  Continue traversing
+                alt_branch_hashes.append(block_header.hash)
+            else:
+                # End of branch has been found
+                start_height = block_height
+                eob = True
+        primary_branch_hashes = [b[0].hash
+                                 for b in self.get_block_headers_range_iter(start_height, stop_height, branch=0)]
+        block_sql = 'UPDATE blocks SET branch={} WHERE hash IN ({})'
+        tx_sql = 'UPDATE transactions SET branch={} WHERE blockHash IN ({})'
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute(block_sql.format(0, ",".join(alt_branch_hashes)))
+            cursor.execute(tx_sql.format(0, ",".join(alt_branch_hashes)))
+            cursor.execute(block_sql.format(branch, ",".join(primary_branch_hashes)))
+            cursor.execute(tx_sql.format(branch, ",".join(primary_branch_hashes)))
+        return
 
     def get_transaction_history(self, address, branch=0):
         # TODO: convert this to return a generator
@@ -150,7 +139,8 @@ class Blockchain(object):
             for transaction in cursor:
                 transactions.append(Transaction(transaction[1], transaction[2], transaction[3], transaction[4],
                                     tx_type=transaction[7], timestamp=transaction[5], tx_hash=transaction[0],
-                                    signature=transaction[6], asset=transaction[8], data=transaction[9]))
+                                    signature=transaction[6], asset=transaction[9], data=transaction[10],
+                                    prev_hash=transaction[12]))
         return transactions
 
     def get_transactions_by_block_hash(self, block_hash):
@@ -162,11 +152,12 @@ class Blockchain(object):
             for transaction in cursor:
                 transactions.append(Transaction(transaction[1], transaction[2], transaction[3], transaction[4],
                                     tx_type=transaction[7], timestamp=transaction[5], tx_hash=transaction[0],
-                                    signature=transaction[6], asset=transaction[8], data=transaction[9]))
+                                    signature=transaction[6], asset=transaction[9], data=transaction[10],
+                                    prev_hash=transaction[12]))
         return transactions
 
-    def get_transaction_by_hash(self, transaction_hash):
-        sql = 'SELECT * FROM transactions WHERE hash={}'.format(transaction_hash)
+    def get_transaction_by_hash(self, transaction_hash, branch=0):
+        sql = 'SELECT * FROM transactions WHERE hash={} AND branch={}'.format(transaction_hash, branch)
         with sqlite3.connect(config['user']['db']) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
@@ -203,22 +194,22 @@ class Blockchain(object):
 
     def calculate_hash_difficulty(self, height=None):
         if height is None:
-            block = self.get_latest_block_header()[0]
-            height = block.height
+            block_header, block_branch, block_height = self.get_tallest_block_header()
         else:
-            block = self.get_block_header_by_height(height)[0]
+            block_header, block_branch, block_height = self.get_block_headers_by_height(height)
+        height = block_height
 
-        if block.height > self.DIFFICULTY_ADJUSTMENT_SPAN:
-            block_delta = self.get_block_header_by_height(height - self.DIFFICULTY_ADJUSTMENT_SPAN)
-            timestamp_delta = block.block_header.timestamp - block_delta.block_header.timestamp
+        if height > self.DIFFICULTY_ADJUSTMENT_SPAN:
+            bd_header, bd_branch, bd_height = self.get_block_headers_by_height(height - self.DIFFICULTY_ADJUSTMENT_SPAN)
+            timestamp_delta = block_header.timestamp - bd_header.timestamp
             # blocks were mined quicker than target
             if timestamp_delta < (self.TARGET_TIME_PER_BLOCK * self.DIFFICULTY_ADJUSTMENT_SPAN):
-                return block.hash_difficulty + 1
+                return block_header.hash_difficulty + 1
             # blocks were mined slower than target
             elif timestamp_delta > (self.TARGET_TIME_PER_BLOCK * self.DIFFICULTY_ADJUSTMENT_SPAN):
-                return block.hash_difficulty - 1
+                return block_header.hash_difficulty - 1
             # blocks were mined within the target time window
-            return block.hash_difficulty
+            return block_header.hash_difficulty
         # not enough blocks were mined for an adjustment
         return self.MINIMUM_HASH_DIFFICULTY
 
@@ -242,53 +233,78 @@ class Blockchain(object):
         with sqlite3.connect(config['user']['db']) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
-            branch = cursor.fetchone()
-        return branch[0]
+            branch = cursor.fetchone()[0]
+        return branch
 
-    def get_latest_block_header(self):
+    def get_tallest_block_header(self, branch=0):
+        # returns tuple of BlockHeader, branch, height
+        sql = 'SELECT * FROM blocks WHERE height = (SELECT MAX(height) FROM blocks WHERE branch={})'.format(branch)
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            block = cursor.fetchone()
+        return BlockHeader(block[1], block[2], block[5], block[4], block[6]), block[7], block[3]
+
+    def get_block_headers_by_height(self, height):
+        # returns tuples of BlockHeader, branch, height
         block_headers = []
-        sql = 'SELECT * FROM blocks WHERE height = (SELECT MAX(height) FROM blocks)'
+        sql = 'SELECT * FROM blocks WHERE height={} ORDER BY branch'.format(height)
         with sqlite3.connect(config['user']['db']) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             for block in cursor:
-                block_headers.append(BlockHeader(block[1], block[2], block[5], block[4], block[6]))
-        return block_headers
-
-    def get_block_header_by_height(self, height):
-        block_headers = []
-        sql = 'SELECT * FROM blocks WHERE height={}'.format(height)
-        with sqlite3.connect(config['user']['db']) as conn:
-            cursor = conn.cursor()
-            cursor.execute(sql)
-            for block in cursor:
-                block_headers.append(BlockHeader(block[1], block[2], block[5], block[4], block[6]))
+                block_headers.append(BlockHeader(block[1], block[2], block[5], block[4], block[6])), block[7], block[3]
         return block_headers
 
     def get_block_header_by_hash(self, block_hash):
+        # returns tuple of BlockHeader, branch, height
         sql = 'SELECT * FROM blocks WHERE hash={}'.format(block_hash)
         with sqlite3.connect(config['user']['db']) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             block = cursor.fetchone()
-        return BlockHeader(block[1], block[2], block[5], block[4], block[6])
+        return BlockHeader(block[1], block[2], block[5], block[4], block[6]), block[7], block[3]
 
-    def get_all_block_headers_iter(self):
-        sql = 'SELECT * FROM blocks'
+    def get_branches_by_prevhash(self, prev_hash):
+        # returns list of branches
+        sql = 'SELECT branch FROM blocks WHERE prevHash={} ORDER BY branch'.format(prev_hash)
+        with sqlite3.connect(config['user']['db']) as conn:
+            conn.row_factory = lambda cursor, row: row[0]
+            cursor = conn.cursor()
+            branches = cursor.execute(sql).fetchall()
+        return branches
+
+    def get_open_branches(self, tolerance):
+        # returns list of tuples of branches, hash, height
+        branches = []
+        #sql = 'SELECT DISTINCT branch\ FROM blocks\
+        #    WHERE height >= (SELECT MAX(height) FROM blocks) - {} GROUP BY branch ORDER BY branch'.format(tolerance)
+        sql = 'SELECT * FROM branches WHERE currentHeight >= {} - 3 ORDER BY id'.format(tolerance)
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            for branch in cursor:
+                branches.append((branch[0], branch[1], branch[2]))
+        return branches
+
+    def get_all_block_headers_iter(self, branch=0):
+        # yields tuples of BlockHeader, branch, height
+        sql = 'SELECT * FROM blocks WHERE branch={}'.format(branch)
         with sqlite3.connect(config['user']['db']) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             for block in cursor:
-                yield BlockHeader(block[1], block[2], block[5], block[4], block[6])
+                yield BlockHeader(block[1], block[2], block[5], block[4], block[6]), block[7], block[3]
 
-    def get_block_headers_range_iter(self, start_height, stop_height):
-        sql = 'SELECT * FROM blocks WHERE height >= {} AND height <= {} ORDER BY height ASC'\
-            .format(start_height, stop_height)
+    def get_block_headers_range_iter(self, start_height, stop_height, branch=0):
+        # yields tuples of BlockHeader, branch, height
+        sql = 'SELECT * FROM blocks WHERE height >= {} AND height <= {} AND branch={} ORDER BY height ASC'\
+            .format(start_height, stop_height, branch)
         with sqlite3.connect(config['user']['db']) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             for block in cursor:
-                yield BlockHeader(block[1], block[2], block[5], block[4], block[6])
+                yield BlockHeader(block[1], block[2], block[5], block[4], block[6]), block[7], block[3]
 
     def __str__(self):
         return str(self.__dict__)

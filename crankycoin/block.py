@@ -26,6 +26,31 @@ class BlockHeader(object):
             format(self.timestamp, 'x') + \
             "{0:0>8}".format(self.nonce, 'x')
 
+    @property
+    def hash(self):
+        """
+        :return: scrypt hash
+        :rtype: str
+        """
+        hashable = self.to_hashable()
+        hash_object = pyscrypt.hash(
+            password=hashable,
+            salt=hashable,
+            N=1024,
+            r=1,
+            p=1,
+            dkLen=32)
+        return hash_object.encode('hex')
+
+    @property
+    def hash_difficulty(self):
+        difficulty = 0
+        for c in self.hash:
+            if c != '0':
+                break
+            difficulty += 1
+        return difficulty
+
     def to_json(self):
         return json.dumps(self, default=lambda o: {key.lstrip('_'): value for key, value in o.__dict__.items()},
                           sort_keys=True)
@@ -65,7 +90,6 @@ class Block(object):
         self._transactions = transactions
         merkle_root = self._calculate_merkle_root()
         self.block_header = BlockHeader(previous_hash, merkle_root, timestamp, nonce)
-        self._current_hash = self._calculate_block_hash()
 
     @property
     def height(self):
@@ -74,34 +98,6 @@ class Block(object):
     @property
     def transactions(self):
         return self._transactions
-
-    @property
-    def current_hash(self):
-        return self._calculate_block_hash()
-
-    @property
-    def hash_difficulty(self):
-        difficulty = 0
-        for c in self.current_hash:
-            if c != '0':
-                break
-            difficulty += 1
-        return difficulty
-
-    def _calculate_block_hash(self):
-        """
-        :return: scrypt hash
-        :rtype: str
-        """
-        header = self.block_header.to_hashable()
-        hash_object = pyscrypt.hash(
-            password=header,
-            salt=header,
-            N=1024,
-            r=1,
-            p=1,
-            dkLen=32)
-        return hash_object.encode('hex')
 
     def _calculate_merkle_root(self):
         if len(self._transactions) < 1:
