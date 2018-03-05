@@ -100,7 +100,19 @@ class Blockchain(object):
             return cursor.lastrowid
 
     def prune(self):
-        raise NotImplementedError()
+        sql = 'SELECT id FROM branches WHERE currentHeight < (SELECT MAX(height) FROM blocks) - {}'\
+            .format(self.SHORT_CHAIN_TOLERANCE)
+        tx_sql = 'DELETE FROM transactions WHERE branch IN ({})'
+        block_sql = 'DELETE FROM transactions WHERE branch IN ({})'
+        branch_sql = 'DELETE FROM branches WHERE id IN ({})'
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            branches = [branch[0] for branch in cursor.fetchall()]
+            cursor.execute(tx_sql.format(",".join(branches)))
+            cursor.execute(block_sql.format(",".join(branches)))
+            cursor.execute(branch_sql.format(",".join(branches)))
+        return
 
     def restructure_primary_branch(self, branch):
         block_header, block_branch, block_height = self.get_tallest_block_header(branch=branch)
@@ -279,7 +291,8 @@ class Blockchain(object):
         branches = []
         #sql = 'SELECT DISTINCT branch\ FROM blocks\
         #    WHERE height >= (SELECT MAX(height) FROM blocks) - {} GROUP BY branch ORDER BY branch'.format(tolerance)
-        sql = 'SELECT * FROM branches WHERE currentHeight >= {} - 3 ORDER BY id'.format(tolerance)
+        sql = 'SELECT * FROM branches WHERE currentHeight >= (SELECT MAX(height) FROM blocks) - {} ORDER BY id'\
+            .format(tolerance)
         with sqlite3.connect(config['user']['db']) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)

@@ -132,8 +132,9 @@ class FullNode(NodeMixin):
                     block_dict['timestamp'],
                     block_dict['nonce']
                 )
-                if block.current_hash != block_dict['current_hash']:
-                    raise InvalidHash(block.index, "Block Hash Mismatch: {} {}".format(block_dict['current_hash'], block.current_hash))
+                if block.block_header.hash != block_dict['current_hash']:
+                    raise InvalidHash(block.height, "Block Hash Mismatch: {} {}"
+                                      .format(block_dict['current_hash'], block.block_header.hash))
                 return block
         except requests.exceptions.RequestException as re:
             pass
@@ -208,7 +209,7 @@ class FullNode(NodeMixin):
                         block_dict['nonce']
                     )
                     if block.block_header.hash != block_dict['current_hash']:
-                        raise InvalidHash(block.index, "Block Hash Mismatch: {}".format(block_dict['current_hash']))
+                        raise InvalidHash(block.height, "Block Hash Mismatch: {}".format(block_dict['current_hash']))
                     blocks.append(block)
                 return blocks
         except requests.exceptions.RequestException as re:
@@ -224,7 +225,8 @@ class FullNode(NodeMixin):
             if self.blockchain.add_block(block):
                 self.mempool.remove_unconfirmed_transactions(block.transactions[1:])
                 statuses = self.broadcast_block(block)
-                logger.info("Block {} found with hash {} and nonce {}".format(block.index, block.current_hash, block.block_header.nonce))
+                logger.info("Block {} found with hash {} and nonce {}"
+                            .format(block.height, block.block_header.hash, block.block_header.nonce))
                 logger.debug(statuses)
         return
 
@@ -561,7 +563,12 @@ class FullNode(NodeMixin):
 
     @app.route('/blocks/', methods=['GET'])
     def get_blocks(self, request):
+        # TODO: Deprecate
         return json.dumps([block.to_dict() for block in self.blockchain.get_all_blocks()])
+
+    @app.route('/ping/', methods=['GET'])
+    def ping(self):
+        return json.dumps(config['network'])
 
 
 if __name__ == "__main__":
