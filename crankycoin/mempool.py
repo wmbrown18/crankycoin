@@ -1,7 +1,46 @@
 from multiprocessing import Lock
+import sqlite3
+
+from config import *
 
 
 class Mempool(object):
+
+    def __init__(self):
+        self.mempool_lock = Lock()
+        self.db_init()
+
+    def db_init(self):
+        with sqlite3.connect(config['user']['db']) as conn:
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(unconfirmed_transactions)")
+            if len(cursor.fetchall()) > 0:
+                return
+            sql = open('config/init_mempool.sql', 'r').read()
+            cursor = conn.cursor()
+            cursor.executescript(sql)
+        return
+
+    def get_all_unconfirmed_transactions(self):
+        raise NotImplementedError
+
+    def get_unconfirmed_transaction(self):
+        raise NotImplementedError
+
+    def get_unconfirmed_transactions_chunk(self, chunk_size=None):
+        raise NotImplementedError
+
+    def push_unconfirmed_transaction(self, transaction):
+        raise NotImplementedError
+
+    def remove_unconfirmed_transaction(self, transaction_hash):
+        raise NotImplementedError
+
+    def remove_unconfirmed_transactions(self, transactions):
+        raise NotImplementedError
+
+
+class MempoolMemory(object):
 
     def __init__(self):
         self.unconfirmed_transactions = []

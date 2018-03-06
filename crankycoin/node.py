@@ -1,6 +1,6 @@
 import grequests
 from klein import Klein
-from multiprocessing import Lock, Process
+from multiprocessing import Lock, Process, Queue
 import requests
 from threading import Thread
 
@@ -90,8 +90,8 @@ class FullNode(NodeMixin):
         self.reward_address = reward_address
         self.broadcast_node(host)
         self.full_nodes.add(host)
-        self.mempool = Mempool()
         self.blockchain = Blockchain()
+        self.mempool = Mempool()
         self.validation = Validation(self.blockchain, self.mempool)
 
         logger.debug("full node server starting on %s with reward address of %s...", host, reward_address)
