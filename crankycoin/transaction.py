@@ -69,6 +69,10 @@ class Transaction(object):
         return self._data
 
     @property
+    def prev_hash(self):
+        return self._prev_hash
+
+    @property
     def signature(self):
         return self._signature
 

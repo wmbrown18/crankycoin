@@ -42,9 +42,3 @@ CREATE TABLE IF NOT EXISTS branches(
     currentHash CHAR(32),
     currentHeight INTEGER
 );
-
-CREATE TABLE IF NOT EXISTS peers(
-    host CHAR(39),
-    consecutive_downtime INT,
-    PRIMARY KEY host
-);

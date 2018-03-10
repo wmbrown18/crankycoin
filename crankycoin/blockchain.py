@@ -18,18 +18,19 @@ class Blockchain(object):
     DIFFICULTY_ADJUSTMENT_SPAN = config['network']['difficulty_adjustment_span']
     SIGNIFICANT_DIGITS = config['network']['significant_digits']
     SHORT_CHAIN_TOLERANCE = config['network']['short_chain_tolerance']
+    CHAIN_DB = config['user']['chain_db']
 
     def __init__(self):
         self.blocks_lock = Lock()
         self.db_init()
 
     def db_init(self):
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute("PRAGMA table_info(blocks)")
             if len(cursor.fetchall()) > 0:
                 return
-            sql = open('config/init.sql', 'r').read()
+            sql = open('config/init_blockchain.sql', 'r').read()
             cursor = conn.cursor()
             cursor.executescript(sql)
         return
@@ -83,7 +84,7 @@ class Blockchain(object):
                            .format(block.block_header.hash, block.height, branch))
 
         try:
-            with sqlite3.connect(config['user']['db']) as conn:
+            with sqlite3.connect(self.CHAIN_DB) as conn:
                 cursor = conn.cursor()
                 for sql in sql_strings:
                     cursor.execute(sql)
@@ -94,7 +95,7 @@ class Blockchain(object):
 
     def get_new_branch_number(self, block_hash, height):
         sql = 'INSERT INTO branches (currentHash, currentHeight) VALUES ({}, {})'.format(block_hash, height)
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             return cursor.lastrowid
@@ -105,7 +106,7 @@ class Blockchain(object):
         tx_sql = 'DELETE FROM transactions WHERE branch IN ({})'
         block_sql = 'DELETE FROM transactions WHERE branch IN ({})'
         branch_sql = 'DELETE FROM branches WHERE id IN ({})'
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             branches = [branch[0] for branch in cursor.fetchall()]
@@ -133,7 +134,7 @@ class Blockchain(object):
                                  for b in self.get_block_headers_range_iter(start_height, stop_height, branch=0)]
         block_sql = 'UPDATE blocks SET branch={} WHERE hash IN ({})'
         tx_sql = 'UPDATE transactions SET branch={} WHERE blockHash IN ({})'
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(block_sql.format(0, ",".join(alt_branch_hashes)))
             cursor.execute(tx_sql.format(0, ",".join(alt_branch_hashes)))
@@ -145,7 +146,7 @@ class Blockchain(object):
         # TODO: convert this to return a generator
         transactions = []
         sql = 'SELECT * FROM transactions WHERE (src={} OR dest={}) AND branch={}'.format(address, address, branch)
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             for transaction in cursor:
@@ -158,7 +159,7 @@ class Blockchain(object):
     def get_transactions_by_block_hash(self, block_hash):
         transactions = []
         sql = 'SELECT * FROM transactions WHERE blockHash='.format(block_hash)
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             for transaction in cursor:
@@ -170,7 +171,7 @@ class Blockchain(object):
 
     def get_transaction_by_hash(self, transaction_hash, branch=0):
         sql = 'SELECT * FROM transactions WHERE hash={} AND branch={}'.format(transaction_hash, branch)
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             transaction = cursor.fetchone()
@@ -184,7 +185,7 @@ class Blockchain(object):
         balance = 0
         sql = 'SELECT src, dest, amount, fee FROM transactions WHERE (src={} OR dest={}) AND asset={} AND branch={} \
             AND type < 3'.format(address, address, asset, branch)
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             for transaction in cursor:
@@ -196,7 +197,7 @@ class Blockchain(object):
 
     def find_duplicate_transactions(self, transaction_hash):
         sql = 'SELECT COUNT(*) FROM transactions WHERE hash={}'.format(transaction_hash)
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             count = cursor.fetchone()[0]
@@ -234,7 +235,7 @@ class Blockchain(object):
 
     def get_height(self):
         sql = 'SELECT MAX(height) FROM blocks'
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             height = cursor.fetchone()[0]
@@ -242,7 +243,7 @@ class Blockchain(object):
 
     def get_branch_by_hash(self, block_hash):
         sql = 'SELECT branch FROM blocks WHERE hash={}'.format(block_hash)
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             branch = cursor.fetchone()[0]
@@ -251,7 +252,7 @@ class Blockchain(object):
     def get_tallest_block_header(self, branch=0):
         # returns tuple of BlockHeader, branch, height
         sql = 'SELECT * FROM blocks WHERE height = (SELECT MAX(height) FROM blocks WHERE branch={})'.format(branch)
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             block = cursor.fetchone()
@@ -261,7 +262,7 @@ class Blockchain(object):
         # returns tuples of BlockHeader, branch, height
         block_headers = []
         sql = 'SELECT * FROM blocks WHERE height={} ORDER BY branch'.format(height)
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             for block in cursor:
@@ -271,7 +272,7 @@ class Blockchain(object):
     def get_block_header_by_hash(self, block_hash):
         # returns tuple of BlockHeader, branch, height
         sql = 'SELECT * FROM blocks WHERE hash={}'.format(block_hash)
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             block = cursor.fetchone()
@@ -280,7 +281,7 @@ class Blockchain(object):
     def get_branches_by_prevhash(self, prev_hash):
         # returns list of branches
         sql = 'SELECT branch FROM blocks WHERE prevHash={} ORDER BY branch'.format(prev_hash)
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             conn.row_factory = lambda cursor, row: row[0]
             cursor = conn.cursor()
             branches = cursor.execute(sql).fetchall()
@@ -293,7 +294,7 @@ class Blockchain(object):
         #    WHERE height >= (SELECT MAX(height) FROM blocks) - {} GROUP BY branch ORDER BY branch'.format(tolerance)
         sql = 'SELECT * FROM branches WHERE currentHeight >= (SELECT MAX(height) FROM blocks) - {} ORDER BY id'\
             .format(tolerance)
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             for branch in cursor:
@@ -303,7 +304,7 @@ class Blockchain(object):
     def get_all_block_headers_iter(self, branch=0):
         # yields tuples of BlockHeader, branch, height
         sql = 'SELECT * FROM blocks WHERE branch={}'.format(branch)
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             for block in cursor:
@@ -313,7 +314,7 @@ class Blockchain(object):
         # yields tuples of BlockHeader, branch, height
         sql = 'SELECT * FROM blocks WHERE height >= {} AND height <= {} AND branch={} ORDER BY height ASC'\
             .format(start_height, stop_height, branch)
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             for block in cursor:

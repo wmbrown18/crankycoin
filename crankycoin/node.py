@@ -460,11 +460,12 @@ class FullNode(NodeMixin):
 
     @app.route('/transactions/', methods=['GET'])
     def get_unconfirmed_transactions(self, request):
-        return json.dumps([transaction.to_dict() for transaction in self.mempool.get_all_unconfirmed_transactions()])
+        return json.dumps([transaction.to_dict()
+                           for transaction in self.mempool.get_all_unconfirmed_transactions_iter()])
 
     @app.route('/transactions/count', methods=['GET'])
     def get_unconfirmed_transactions_count(self, request):
-        return json.dumps(len(self.mempool.get_all_unconfirmed_transactions_map()))
+        return json.dumps(self.mempool.get_unconfirmed_transactions_count())
 
     @app.route('/transactions/<tx_hash>', methods=['GET'])
     def get_unconfirmed_transaction(self, request, tx_hash):

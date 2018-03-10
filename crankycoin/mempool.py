@@ -2,16 +2,18 @@ from multiprocessing import Lock
 import sqlite3
 
 from config import *
+from crankycoin import Transaction
 
 
 class Mempool(object):
 
+    POOL_DB = config['user']['pool_db']
+
     def __init__(self):
-        self.mempool_lock = Lock()
         self.db_init()
 
     def db_init(self):
-        with sqlite3.connect(config['user']['db']) as conn:
+        with sqlite3.connect(self.POOL_DB) as conn:
             cursor = conn.cursor()
             cursor.execute("PRAGMA table_info(unconfirmed_transactions)")
             if len(cursor.fetchall()) > 0:
@@ -21,23 +23,69 @@ class Mempool(object):
             cursor.executescript(sql)
         return
 
-    def get_all_unconfirmed_transactions(self):
-        raise NotImplementedError
+    def get_all_unconfirmed_transactions_iter(self):
+        sql = 'SELECT * FROM unconfirmed_transactions'
+        with sqlite3.connect(self.POOL_DB) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            for transaction in cursor:
+                yield Transaction(transaction[1], transaction[2], transaction[3], transaction[4], transaction[10],
+                                  transaction[7], transaction[5], transaction[0], transaction[8], transaction[9],
+                                  transaction[6])
 
-    def get_unconfirmed_transaction(self):
-        raise NotImplementedError
+    def get_unconfirmed_transactions_count(self):
+        sql = 'SELECT count(*) FROM unconfirmed_transactions'
+        with sqlite3.connect(self.POOL_DB) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            count = cursor.fetchone()[0]
+        return count
+
+    def get_unconfirmed_transaction(self, tx_hash):
+        sql = 'SELECT * FROM unconfirmed_transactions WHERE hash={}'.format(tx_hash)
+        with sqlite3.connect(self.POOL_DB) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            transaction = cursor.fetchone()[0]
+        return Transaction(transaction[1], transaction[2], transaction[3], transaction[4], transaction[10],
+                           transaction[7], transaction[5], transaction[0], transaction[8], transaction[9],
+                           transaction[6])
 
     def get_unconfirmed_transactions_chunk(self, chunk_size=None):
-        raise NotImplementedError
+        sql = 'SELECT * FROM unconfirmed_transactions ORDER BY fee DESC LIMIT {}'.format(chunk_size)
+        with sqlite3.connect(self.POOL_DB) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            for transaction in cursor:
+                yield Transaction(transaction[1], transaction[2], transaction[3], transaction[4], transaction[10],
+                                  transaction[7], transaction[5], transaction[0], transaction[8], transaction[9],
+                                  transaction[6])
 
     def push_unconfirmed_transaction(self, transaction):
-        raise NotImplementedError
+        sql = 'INSERT INTO unconfirmed_transactions (hash, src, dest, amount, fee, timestamp, signature, type, asset,'\
+              ' data, prevHash) VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})'.format(transaction.tx_hash,
+                    transaction.source, transaction.destination, transaction.amount, transaction.fee,
+                    transaction.timestamp, transaction.signature, transaction.tx_type, transaction.asset,
+                    transaction.data, transaction.prev_hash)
+        with sqlite3.connect(self.POOL_DB) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            return cursor.lastrowid
 
-    def remove_unconfirmed_transaction(self, transaction_hash):
-        raise NotImplementedError
+    def remove_unconfirmed_transaction(self, tx_hash):
+        sql = 'DELETE FROM unconfirmed_transactions WHERE hash={}'.format(tx_hash)
+        with sqlite3.connect(self.POOL_DB) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+        return
 
     def remove_unconfirmed_transactions(self, transactions):
-        raise NotImplementedError
+        sql = 'DELETE FROM unconfirmed_transactions WHERE hash IN ({})'\
+            .format([transaction.tx_hash for transaction in transactions])
+        with sqlite3.connect(self.POOL_DB) as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql)
+        return
 
 
 class MempoolMemory(object):

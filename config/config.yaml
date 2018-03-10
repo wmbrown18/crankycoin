@@ -2,7 +2,9 @@ user:
     public_key:
     encrypted_private_key:
     ip: "127.0.0.1"
-    db: "./chaindata/chaindata.db"
+    chain_db: "./data/chaindata.db"
+    pool_db: "./data/pool.db"
+    peer_db: "./data/peer.db"
 network:
     name: "Cranky Coin"
     ticker_symbol: "CRNK"
@@ -23,7 +25,3 @@ network:
     transaction_history_url: "http://{}:{}/address/{}/transactions"
     balance_url: "http://{}:{}/address/{}/balance"
     status_url: "http://{}:{}/status/"
-    dns_seeds: []
-    seed_nodes:
-        - "127.0.0.1"
-        - "127.0.0.2"
