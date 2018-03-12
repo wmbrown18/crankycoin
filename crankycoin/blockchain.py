@@ -35,22 +35,22 @@ class Blockchain(object):
             cursor.executescript(sql)
         return
 
-    def alter_chain(self, blocks):
-        # TODO: Deprecate?
-        fork_start = blocks[0].height
-        alternate_blocks = self.blocks[0:fork_start]
-        alternate_blocks.extend(blocks)
-        alternate_chain = Blockchain(alternate_blocks)
-
-        status = False
-        if alternate_chain.get_height() > self.get_height():
-            self.blocks_lock.acquire()
-            try:
-                self.blocks = alternate_blocks
-                status = True
-            finally:
-                self.blocks_lock.release()
-        return status
+    # def alter_chain(self, blocks):
+    #     # TODO: Deprecate?
+    #     fork_start = blocks[0].height
+    #     alternate_blocks = self.blocks[0:fork_start]
+    #     alternate_blocks.extend(blocks)
+    #     alternate_chain = Blockchain(alternate_blocks)
+    #
+    #     status = False
+    #     if alternate_chain.get_height() > self.get_height():
+    #         self.blocks_lock.acquire()
+    #         try:
+    #             self.blocks = alternate_blocks
+    #             status = True
+    #         finally:
+    #             self.blocks_lock.release()
+    #     return status
 
     def add_block(self, block):
         status = False
@@ -320,14 +320,14 @@ class Blockchain(object):
             for block in cursor:
                 yield BlockHeader(block[1], block[2], block[5], block[4], block[6]), block[7], block[3]
 
-    def __str__(self):
-        return str(self.__dict__)
-
-    def __eq__(self, other):
-        return self.__dict__ == other.__dict__
-
-    def __ne__(self, other):
-        return not self == other
+    def get_hashes_range(self, start_height, stop_height, branch=0):
+        sql = 'SELECT hash FROM blocks WHERE height >= {} AND height <= {} AND branch={} ORDER BY height ASC'\
+            .format(start_height, stop_height, branch)
+        with sqlite3.connect(self.CHAIN_DB) as conn:
+            conn.row_factory = lambda cursor, row: row[0]
+            cursor = conn.cursor()
+            hashes = cursor.execute(sql).fetchall()
+        return hashes
 
 
 if __name__ == "__main__":

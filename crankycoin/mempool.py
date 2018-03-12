@@ -170,3 +170,7 @@ class MempoolMemory(object):
         # rebuild map
         self.unconfirmed_transactions_map = {t.tx_hash: t for t in self.unconfirmed_transactions}
         return
+
+
+if __name__ == "__main__":
+    pass

@@ -22,6 +22,13 @@ Replay Attack:
 --------------
 Prefixed wallet addresses
 
+DDOS Attack:
+------------
+Well-formed transactions POSTS (from light clients) and smaller/inexpensive GET requests will be served to the public
+Other calls will be restricted to known peers or dropped with a 403
+accepted POST requests will be asynchronously placed on a queue before validating/processing
+GET requests will be served synchronously with a caching layer
+
 PoW
 ===
 Scrypt N=1024,r=1,p=1,dkLen=32

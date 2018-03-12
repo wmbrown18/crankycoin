@@ -165,3 +165,7 @@ class Block(object):
 
     def __ne__(self, other):
         return not self == other
+
+
+if __name__ == "__main__":
+    pass

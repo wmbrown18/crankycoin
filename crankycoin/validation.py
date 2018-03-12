@@ -1,6 +1,7 @@
 from config import *
 from errors import *
 
+
 class Validation(object):
 
     def __init__(self, blockchain, mempool):
@@ -72,3 +73,7 @@ class Validation(object):
             logger.warn('Transaction not valid.  Insufficient funds: {}'.format(transaction.tx_hash))
             return False
         return True
+
+
+if __name__ == "__main__":
+    pass

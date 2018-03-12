@@ -19,6 +19,7 @@ class Client(NodeMixin):
             logger.info("No private key provided. Generating new key pair.")
             self.__private_key__ = coincurve.PrivateKey()
         self.__public_key__ = self.__private_key__.public_key
+        super(Client, self).__init__()
 
     def get_public_key(self):
         return self.__public_key__.format(compressed=True).encode('hex')
@@ -70,6 +71,23 @@ class Client(NodeMixin):
         )
         transaction.sign(self.get_private_key())
         return self.broadcast_transaction(transaction)
+
+    def check_peers(self):
+        # Light client version of check peers
+        if self.peers.get_peers_count() < self.MIN_PEERS:
+            known_peers = self.find_known_peers()
+            for peer in known_peers:
+                if self.peers.get_peers_count() >= self.MIN_PEERS:
+                    break
+
+                status_url = self.STATUS_URL.format(peer, self.FULL_NODE_PORT)
+                try:
+                    response = requests.get(status_url)
+                    if response.status_code == 200 and json.loads(response.json()) == config['network']:
+                        self.peers.add_peer(peer)
+                except requests.exceptions.RequestException as re:
+                    pass
+        return
 
 
 if __name__ == "__main__":

@@ -50,7 +50,7 @@ class TestNode(unittest.TestCase):
             node = FullNode("127.0.0.1", "reward_address")
             node.full_nodes = {"127.0.0.1", "127.0.1.1", "127.0.1.2"}
 
-            node.request_nodes_from_all()
+            node.find_known_peers()
 
             self.assertEqual(node.full_nodes, {"127.0.0.2", "127.0.0.1", "127.0.0.3", "127.0.0.4", "127.0.0.5", "127.0.1.1", "127.0.1.2"})
 
@@ -104,7 +104,7 @@ class TestNode(unittest.TestCase):
             patched_block_current_hash.return_value = "current_hash"
             node = FullNode("127.0.0.1", "reward_address")
 
-            block = node.request_block("127.0.0.2", "30013", "latest")
+            block = node.request_block_header("127.0.0.2", "30013", "latest")
 
             self.assertIsNotNone(block)
             self.assertEqual(block.index, 35)
@@ -127,7 +127,7 @@ class TestNode(unittest.TestCase):
             patched_block_current_hash.return_value = "current_hash"
             node = FullNode("127.0.0.1", "reward_address")
 
-            block = node.request_block("127.0.0.2", "30013", 29)
+            block = node.request_block_header("127.0.0.2", "30013", 29)
 
             self.assertIsNotNone(block)
             self.assertEqual(block.index, 29)
@@ -143,7 +143,7 @@ class TestNode(unittest.TestCase):
                 patch("crankycoin.requests.get", side_effect=requests.exceptions.RequestException()) as patched_requests:
             node = FullNode("127.0.0.1", "reward_address")
 
-            block = node.request_block("127.0.0.2", "30013", "latest")
+            block = node.request_block_header("127.0.0.2", "30013", "latest")
 
             self.assertIsNone(block)
             patched_requests.assert_called_once_with('http://127.0.0.2:30013/block/latest')
