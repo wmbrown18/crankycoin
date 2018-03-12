@@ -27,7 +27,12 @@ DDOS Attack:
 Well-formed transactions POSTS (from light clients) and smaller/inexpensive GET requests will be served to the public
 Other calls will be restricted to known peers or dropped with a 403
 accepted POST requests will be asynchronously placed on a queue before validating/processing
-GET requests will be served synchronously with a caching layer
+GET requests will be served synchronously with an optional caching layer
+
+Peer Discovery
+==============
+a handshake process which validates a nonce, config, version
+min and max peers are configurable
 
 PoW
 ===

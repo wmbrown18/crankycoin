@@ -135,7 +135,7 @@ def full(mine=False):
                 print(response.json())
             elif cmd_split[0] == "getblocks":
                 if len(cmd_split) == 3:
-                    url = fullnode.BLOCKS_RANGE_URL.format("localhost", fullnode.FULL_NODE_PORT, cmd_split[1], cmd_split[2])
+                    url = fullnode.BLOCKS_INV_URL.format("localhost", fullnode.FULL_NODE_PORT, cmd_split[1], cmd_split[2])
                 else:
                     url = fullnode.BLOCKS_URL.format("localhost", fullnode.FULL_NODE_PORT, "")
                 response = requests.get(url)

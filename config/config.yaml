@@ -23,9 +23,11 @@ network:
     downtime_threshold: 20
     nodes_url: "http://{}:{}/nodes/"
     transactions_url: "http://{}:{}/transactions/{}"
-    blocks_range_url: "http://{}:{}/blocks/start/{}/end/{}"
+    transactions_inv_url: "http://{}:{}/transactions/block_hash/{}"
+    blocks_inv_url: "http://{}:{}/blocks/start/{}/end/{}"
     blocks_url: "http://{}:{}/blocks/{}/{}"
     transaction_history_url: "http://{}:{}/address/{}/transactions"
+    inbox_url: "http://{}:{}/inbox/"
     balance_url: "http://{}:{}/address/{}/balance"
     status_url: "http://{}:{}/status/"
     connect_url: "http://{}:{}/connect/"
