@@ -24,6 +24,7 @@ network:
     nodes_url: "http://{}:{}/nodes/"
     transactions_url: "http://{}:{}/transactions/{}"
     transactions_inv_url: "http://{}:{}/transactions/block_hash/{}"
+    unconfirmed_transactions_url: "http://{}:{}/unconfirmed_tx/{}"
     blocks_inv_url: "http://{}:{}/blocks/start/{}/end/{}"
     blocks_url: "http://{}:{}/blocks/{}/{}"
     transaction_history_url: "http://{}:{}/address/{}/transactions"

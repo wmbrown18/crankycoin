@@ -169,6 +169,14 @@ class Blockchain(object):
                                     prev_hash=transaction[12]))
         return transactions
 
+    def get_transaction_hashes_by_block_hash(self, block_hash):
+        sql = 'SELECT hash FROM transactions WHERE blockHash='.format(block_hash)
+        with sqlite3.connect(self.CHAIN_DB) as conn:
+            conn.row_factory = lambda cursor, row: row[0]
+            cursor = conn.cursor()
+            hashes = cursor.execute(sql).fetchall()
+        return hashes
+
     def get_transaction_by_hash(self, transaction_hash, branch=0):
         sql = 'SELECT * FROM transactions WHERE hash={} AND branch={}'.format(transaction_hash, branch)
         with sqlite3.connect(self.CHAIN_DB) as conn:
