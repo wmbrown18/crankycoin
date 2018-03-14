@@ -1,10 +1,9 @@
 import coincurve
+import json
 import random
 import requests
 
-from config import *
-from node import NodeMixin
-from transaction import *
+from crankycoin import Transaction, logger, NodeMixin, config, Peers
 
 
 class Client(NodeMixin):

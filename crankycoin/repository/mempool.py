@@ -1,8 +1,8 @@
 from multiprocessing import Lock
 import sqlite3
 
-from config import *
-from crankycoin import Transaction
+from crankycoin import config
+from crankycoin.models import Transaction
 
 
 class Mempool(object):

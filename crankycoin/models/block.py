@@ -1,11 +1,10 @@
 import hashlib
-import time
 import json
+import time
 import pyscrypt
 
-from config import *
-from crankycoin import Transaction
-from errors import *
+from crankycoin.models import Transaction, InvalidTransactions
+from crankycoin import config
 
 
 class BlockHeader(object):

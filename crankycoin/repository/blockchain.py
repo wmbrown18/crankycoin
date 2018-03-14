@@ -2,10 +2,8 @@ from math import floor
 from multiprocessing import Lock
 import sqlite3
 
-from config import *
-from crankycoin import BlockHeader, Block
-from crankycoin import Transaction
-from errors import *
+from crankycoin import config, logger
+from crankycoin.models import BlockHeader, Transaction
 
 
 class Blockchain(object):

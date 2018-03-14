@@ -1,6 +1,8 @@
 import unittest
-from mock import patch, Mock, MagicMock, call
-from crankycoin.blockchain import *
+
+from crankycoin.repository.blockchain import *
+from mock import patch, Mock, call
+
 
 class TestBlockchain(unittest.TestCase):
 

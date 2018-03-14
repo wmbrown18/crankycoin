@@ -1,7 +1,8 @@
 import unittest
-from mock import patch, Mock, MagicMock, call
-from crankycoin.mempool import *
-from crankycoin.transaction import *
+
+from crankycoin.models.transaction import *
+from crankycoin.repository.mempool import *
+from mock import Mock
 
 
 class TestMempool(unittest.TestCase):

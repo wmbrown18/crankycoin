@@ -1,6 +1,6 @@
 import sqlite3
 
-from config import *
+from crankycoin import config
 
 
 class Peers(object):

@@ -3,9 +3,6 @@ import hashlib
 import json
 import time
 
-from config import *
-from errors import *
-
 
 class Transaction(object):
 

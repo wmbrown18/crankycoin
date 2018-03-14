@@ -8,7 +8,7 @@ import requests
 import sys
 from getpass import getpass
 from Cryptodome.Cipher import AES
-from crankycoin import *
+from crankycoin import app, Client, config, logger, FullNode
 
 _PY3 = sys.version_info[0] > 2
 if _PY3:

@@ -1,6 +1,6 @@
+bottle==0.12.13
 ecdsa==0.13
 grequests==0.3.0
-klein==17.2.0
 pycryptodomex==3.4.7
 PyYAML==3.12
 requests==2.14.2

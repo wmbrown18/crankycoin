@@ -1,8 +1,8 @@
-from config import *
-from errors import *
+from crankycoin import logger
+from crankycoin.models.errors import InvalidHash, ChainContinuityError, InvalidTransactions, BlockchainException
 
 
-class Validation(object):
+class Validator(object):
 
     def __init__(self, blockchain, mempool):
         self.blockchain = blockchain

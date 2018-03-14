@@ -1,14 +1,13 @@
-import grequests
-from klein import Klein
-from multiprocessing import Lock, Process, Queue
-import requests
+import json
+import logging
+import multiprocessing as mp
 from threading import Thread
 
-from mempool import *
-from blockchain import *
-from peers import *
-from transaction import *
-from validation import Validation
+import requests
+from crankycoin.repository import Blockchain, Mempool, Peers
+from crankycoin.models import BlockHeader, Transaction
+from crankycoin.services import Validator
+from crankycoin import config, logger, app
 
 
 class NodeMixin(object):
@@ -22,7 +21,6 @@ class NodeMixin(object):
     BLOCKS_URL = config['network']['blocks_url']
     TRANSACTION_HISTORY_URL = config['network']['transaction_history_url']
     BALANCE_URL = config['network']['balance_url']
-    MAX_TRANSACTIONS_PER_BLOCK = config['network']['max_transactions_per_block']
     DOWNTIME_THRESHOLD = config['network']['downtime_threshold']
     STATUS_URL = config['network']['status_url']
     CONNECT_URL = config['network']['connect_url']
@@ -60,7 +58,7 @@ class NodeMixin(object):
             if response.status_code == 200:
                 status_dict = json.loads(response.json())
                 return status_dict == config['network']
-        except Exception:
+        except requests.exceptions.RequestException as re:
             pass
         return None
 
@@ -74,9 +72,10 @@ class NodeMixin(object):
             url = self.TRANSACTIONS_URL.format(node, self.FULL_NODE_PORT, "")
             try:
                 response = requests.post(url, json=data)
+                return response
             except requests.exceptions.RequestException as re:
                 self.peers.record_downtime(node)
-        return
+        return None
         # TODO: convert to grequests and return list of responses
 
     def check_peers(self):
@@ -86,22 +85,21 @@ class NodeMixin(object):
 class FullNode(NodeMixin):
     NODE_TYPE = "full"
     blockchain = None
-    app = Klein()
 
     def __init__(self, host, reward_address, **kwargs):
-        # mp.log_to_stderr()
-        # mp_logger = mp.get_logger()
-        # mp_logger.setLevel(logging.DEBUG)
+        mp.log_to_stderr()
+        mp_logger = mp.get_logger()
+        mp_logger.setLevel(logging.DEBUG)
         self.host = host
-        self.queue = Queue()
+        self.queue = mp.Queue()
         self.reward_address = reward_address
         self.blockchain = Blockchain()
         self.mempool = Mempool()
-        self.validation = Validation(self.blockchain, self.mempool)
+        self.validation = Validator(self.blockchain, self.mempool)
 
         logger.debug("full node server starting on %s with reward address of %s...", host, reward_address)
-        self.node_process = Process(target=self.app.run, args=(host, self.FULL_NODE_PORT))
-        self.node_process.start()
+        self.bottle_thread = Thread(target=app.run, kwargs=dict(host=host, port=self.FULL_NODE_PORT))
+        self.bottle_thread.start()
         logger.debug("full node server started on %s with reward address of %s...", host, reward_address)
         super(FullNode, self).__init__()
         mining = kwargs.get("mining")
@@ -116,7 +114,7 @@ class FullNode(NodeMixin):
         if self.NODE_TYPE == "miner":
             self.exit_flag = True
             self.mining_thread.join()
-        self.node_process.terminate()
+        self.bottle_thread.join()
 
     def dequeue(self, queue):
         while True:
@@ -124,10 +122,6 @@ class FullNode(NodeMixin):
             if msg == 'SIG_EXIT':
                 break
             return msg
-
-    def enqueue(self, msg, queue):
-        queue.put(msg)
-        return
 
     def check_peers(self):
         if self.peers.get_peers_count() < self.MIN_PEERS:
@@ -294,168 +288,6 @@ class FullNode(NodeMixin):
                 logger.info("Block {} found with hash {} and nonce {}"
                             .format(block.height, block.block_header.hash, block.block_header.nonce))
         return
-
-    def mine_block(self, reward_address):
-        latest_block = self.blockchain.get_tallest_block_header()
-        new_block_id = latest_block.index + 1
-        previous_hash = latest_block.current_hash
-
-        transactions = self.mempool.get_unconfirmed_transactions_chunk(self.MAX_TRANSACTIONS_PER_BLOCK)
-        if len(transactions) > 0:
-            fees = sum(t.fee for t in transactions)
-        else:
-            fees = 0
-
-        # coinbase
-        reward_transaction = Transaction(
-            "0",
-            reward_address,
-            self.blockchain.get_reward(new_block_id) + fees,
-            0,
-            "0"
-        )
-        transactions.insert(0, reward_transaction)
-
-        timestamp = int(time.time())
-
-        i = 0
-        block = Block(new_block_id, transactions, previous_hash, timestamp)
-
-        while not self.exit_flag and block.block_header.hash_difficulty < self.blockchain.calculate_hash_difficulty():
-            latest_block = self.blockchain.get_tallest_block_header()
-            if latest_block.index >= new_block_id or latest_block.current_hash != previous_hash:
-                # Next block in sequence was mined by another node.  Stop mining current block.
-                return None
-            i += 1
-            block.block_header.nonce = i
-        return block
-
-    @app.route('/nodes/', methods=['GET'])
-    def get_nodes(self, request):
-        nodes = {
-            "full_nodes": self.peers.get_all_peers()
-        }
-        return json.dumps(nodes)
-
-    @app.route('/unconfirmed_tx/<tx_hash>', methods=['GET'])
-    def get_unconfirmed_tx(self, request, tx_hash):
-        unconfirmed_transaction = self.mempool.get_unconfirmed_transaction(tx_hash)
-        if unconfirmed_transaction:
-            return json.dumps(unconfirmed_transaction.to_dict())
-        request.setResponseCode(404)
-        return json.dumps({'success': False, 'reason': 'Transaction Not Found'})
-
-    @app.route('/unconfirmed_tx/count', methods=['GET'])
-    def get_unconfirmed_transactions_count(self, request):
-        return json.dumps(self.mempool.get_unconfirmed_transactions_count())
-
-    @app.route('/unconfirmed_tx/', methods=['GET'])
-    def get_unconfirmed_transactions(self, request):
-        return json.dumps([transaction.to_dict()
-                           for transaction in self.mempool.get_all_unconfirmed_transactions_iter()])
-
-    @app.route('/address/<address>/balance', methods=['GET'])
-    def get_balance(self, request, address):
-        return json.dumps(self.blockchain.get_balance(address))
-
-    @app.route('/address/<address>/transactions', methods=['GET'])
-    def get_transaction_history(self, request, address):
-        return json.dumps(self.blockchain.get_transaction_history(address))
-
-    @app.route('/transactions/', methods=['POST'])
-    def post_transactions(self, request):
-        body = json.loads(request.content.read())
-        transaction = Transaction(
-            body['transaction']['source'],
-            body['transaction']['destination'],
-            body['transaction']['amount'],
-            body['transaction']['fee'],
-            prev_hash=body['transaction']['prev_hash'],
-            tx_type=body['transaction']['tx_type'],
-            timestamp=body['transaction']['timestamp'],
-            asset=body['transaction']['asset'],
-            data=body['transaction']['data'],
-            signature=body['transaction']['signature'])
-        if transaction.tx_hash != body['transaction']['tx_hash']:
-            logger.warn("Invalid transaction hash: {} should be {}".format(body['transaction']['tx_hash'], transaction.tx_hash))
-            request.setResponseCode(406)
-            return json.dumps({'message': 'Invalid transaction hash'})
-        if self.mempool.get_unconfirmed_transaction(transaction.tx_hash) is None \
-                and self.blockchain.validate_transaction(transaction) \
-                and self.mempool.push_unconfirmed_transaction(transaction):
-            request.setResponseCode(200)
-            return json.dumps({'success': True, 'tx_hash': transaction.tx_hash})
-        request.setResponseCode(406)
-        return json.dumps({'success': False, 'reason': 'Invalid transaction'})
-
-    @app.route('/inbox/', methods=['POST'])
-    def post_to_inbox(self, request):
-        body = json.loads(request.content.read())
-        block_hashes = body.get('block_hashes')
-        tx_hashes = body.get('tx_hashes')
-        block_header = body.get('block_header')
-        # TODO: grab sender's IP
-        # request.getClientIP() gets their IP but I'd rather have a non-spoofable method
-        # like passing in a header with your signed IP
-
-    @app.route('/blocks/start/<start_block_height>/end/<end_block_height>', methods=['GET'])
-    def get_blocks_inv(self, request, start_block_height, end_block_height):
-        if int(end_block_height) - int(start_block_height) > 500:
-            end_block_height = start_block_height + 500
-        blocks_inv = self.blockchain.get_hashes_range(int(start_block_height), int(end_block_height))
-        if blocks_inv:
-            return json.dumps({'block_hashes': blocks_inv})
-        request.setResponseCode(404)
-        return json.dumps({'success': False, 'reason': 'Invalid block range'})
-
-    @app.route('/transactions/block_hash/<block_hash>', methods=['GET'])
-    def get_transactions_inv(self, request, block_hash):
-        transaction_inv = self.blockchain.get_transaction_hashes_by_block_hash(block_hash)
-        if transaction_inv:
-            return json.dumps({'tx_hashes': transaction_inv})
-        request.setResponseCode(404)
-        return json.dumps({'success': False, 'reason': 'Transactions Not Found'})
-
-    @app.route('/transactions/<tx_hash>', methods=['GET'])
-    def get_transaction(self, request, tx_hash):
-        transaction = self.blockchain.get_transaction_by_hash(tx_hash)
-        if transaction:
-            return json.dumps(transaction.to_dict())
-        request.setResponseCode(404)
-        return json.dumps({'success': False, 'reason': 'Transaction Not Found'})
-
-    @app.route('/blocks/hash/<block_hash>', methods=['GET'])
-    def get_block_header_by_hash(self, request, block_hash):
-        block_header = self.blockchain.get_block_header_by_hash(block_hash)
-        if block_header is None:
-            request.setResponseCode(404)
-            return json.dumps({'success': False, 'reason': 'Block Not Found'})
-        return json.dumps(block_header.to_dict())
-
-    @app.route('/blocks/height/<height>', methods=['GET'])
-    def get_block_header_by_height(self, request, height):
-        if height == "latest":
-            block_header = self.blockchain.get_tallest_block_header()
-        else:
-            block_header = self.blockchain.get_block_headers_by_height(int(height))
-        if block_header is None:
-            request.setResponseCode(404)
-            return json.dumps({'success': False, 'reason': 'Block Not Found'})
-        return json.dumps(block_header.to_dict())
-
-    @app.route('/connect/', methods=['POST'])
-    def connect(self, request):
-        body = json.loads(request.content.read())
-        host = body['host']
-        if self.ping_status(host):
-            self.peers.add_peer(host)
-            request.setResponseCode(202)
-            return json.dumps({'success': True})
-        return json.dumps({'success': False})
-
-    @app.route('/status/', methods=['GET'])
-    def get_status(self, request):
-        return json.dumps(config['network'])
 
 
     # def request_blocks_range(self, node, port, start_index, stop_index):
