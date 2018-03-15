@@ -8,7 +8,11 @@ import requests
 import sys
 from getpass import getpass
 from Cryptodome.Cipher import AES
-from crankycoin import app, Client, config, logger, FullNode
+from multiprocessing import Queue
+from crankycoin import app, config, logger
+from crankycoin.node import FullNode
+from crankycoin.wallet import Client
+from crankycoin.miner import Miner
 
 _PY3 = sys.version_info[0] > 2
 if _PY3:
@@ -77,7 +81,7 @@ def client():
             pass
 
 
-def full(mine=False):
+def full():
     helptext = '''
         Available commands:
         ===================
@@ -89,6 +93,7 @@ def full(mine=False):
         mempoolcount
         getmempool
         getunconfirmedtx <tx hash>
+        mine <start | stop>
         quit or exit
     '''
     ip = config['user']['ip']
@@ -96,12 +101,12 @@ def full(mine=False):
     if ip is None or public_key is None:
         print("\n\npublic key and IP must be provided.\n\n")
         sys.exit(1)
-    if(mine):
-        print("\n\nmining node starting...\n\n")
-        fullnode = FullNode(ip, public_key, mining=True)
     else:
+        queue = Queue()
+        miner = Miner(public_key, queue)
         print("\n\nfull node starting...\n\n")
-        fullnode = FullNode(ip, public_key)
+        fullnode = FullNode(ip, public_key, queue)
+        mining = False
 
     while True:
         cmd = raw_input("{} ({}) full node > ".format(config['network']['name'], config['network']['ticker_symbol']))
@@ -155,7 +160,24 @@ def full(mine=False):
                     print(response.json())
                 else:
                     print("\nRequires tx hash\n")
+            elif cmd_split[0] == "mine":
+                if len(cmd_split) == 2:
+                    if cmd_split[1] == "start":
+                        if mining is False:
+                            print("\n\nminer starting...\n\n")
+                            miner.start()
+                    elif cmd_split[1] == "stop":
+                        if mining is True:
+                            print("\n\nminer shutting down...\n\n")
+                            miner.shutdown()
+                    else:
+                        print("\nRequires: start | stop")
+                else:
+                    print("\nRequires: start | stop")
             elif cmd_split[0] in ("quit", "exit"):
+                if mining is True:
+                    print("\n\nminer shutting down...\n\n")
+                    miner.shutdown()
                 fullnode.shutdown()
                 sys.exit(0)
             else:  # help
@@ -166,14 +188,12 @@ def full(mine=False):
 
 def main(argv):
     parser = argparse.ArgumentParser(description='Starts a ' + config['network']['name'] + ' node')
-    parser.add_argument('mode', metavar='type', nargs='?', default=None, help='client | full | miner')
+    parser.add_argument('mode', metavar='type', nargs='?', default=None, help='client | full')
     args = parser.parse_args()
     if args.mode == "client":
         client()
     elif args.mode == "full":
         full()
-    elif args.mode == "miner":
-        full(mine=True)
     else:
         print("Node operation mode not specified")
 

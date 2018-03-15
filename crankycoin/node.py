@@ -86,35 +86,30 @@ class FullNode(NodeMixin):
     NODE_TYPE = "full"
     blockchain = None
 
-    def __init__(self, host, reward_address, **kwargs):
+    def __init__(self, host, reward_address, queue):
         mp.log_to_stderr()
         mp_logger = mp.get_logger()
         mp_logger.setLevel(logging.DEBUG)
         self.host = host
-        self.queue = mp.Queue()
+        self.queue = queue
         self.reward_address = reward_address
         self.blockchain = Blockchain()
         self.mempool = Mempool()
         self.validation = Validator(self.blockchain, self.mempool)
-
-        logger.debug("full node server starting on %s with reward address of %s...", host, reward_address)
+        self.dequeue_process = mp.Process(target=self.dequeue, args=[self.queue])
         self.bottle_thread = Thread(target=app.run, kwargs=dict(host=host, port=self.FULL_NODE_PORT))
+
+        logger.debug("dequeue process starting...")
+        self.dequeue_process.start()
+        logger.debug("full node server starting on %s...", host)
         self.bottle_thread.start()
-        logger.debug("full node server started on %s with reward address of %s...", host, reward_address)
         super(FullNode, self).__init__()
-        mining = kwargs.get("mining")
-        if mining is True:
-            self.NODE_TYPE = "miner"
-            self.exit_flag = False
-            self.mining_thread = Thread(target=self.mine)
-            self.mining_thread.start()
-            logger.debug("mining node started on %s with reward address of %s...", host, reward_address)
 
     def shutdown(self):
-        if self.NODE_TYPE == "miner":
-            self.exit_flag = True
-            self.mining_thread.join()
+        logger.debug("full node on %s shutting down...", self.host)
         self.bottle_thread.join()
+        logger.debug("dequeue process shutting down...")
+        self.dequeue_process.terminate()
 
     def dequeue(self, queue):
         while True:
@@ -275,19 +270,6 @@ class FullNode(NodeMixin):
 
     def __remove_unconfirmed_transactions(self, transactions):
         self.mempool.remove_unconfirmed_transactions(transactions)
-
-    def mine(self):
-        logger.debug("mining node starting on %s with reward address of %s...", self.host, self.reward_address)
-        while not self.exit_flag:
-            block = self.mine_block(self.reward_address)
-            if not block:
-                continue
-            if self.blockchain.add_block(block):
-                self.mempool.remove_unconfirmed_transactions(block.transactions[1:])
-                self.broadcast_block_inv(block.block_header.hash)
-                logger.info("Block {} found with hash {} and nonce {}"
-                            .format(block.height, block.block_header.hash, block.block_header.nonce))
-        return
 
 
     # def request_blocks_range(self, node, port, start_index, stop_index):
