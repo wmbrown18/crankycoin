@@ -1,9 +1,10 @@
 import coincurve
 import json
 import random
-import requests
 
-from crankycoin import Transaction, logger, NodeMixin, config, Peers
+from crankycoin import logger
+from crankycoin.node import NodeMixin
+from crankycoin.models import Transaction
 
 
 class Client(NodeMixin):
@@ -39,27 +40,17 @@ class Client(NodeMixin):
         if address is None:
             address = self.get_public_key()
         if node is None:
-            node = random.sample(self.full_nodes, 1)[0]
-        url = self.BALANCE_URL.format(node, self.FULL_NODE_PORT, address)
-        try:
-            response = requests.get(url)
-            return response.json()
-        except requests.exceptions.RequestException as re:
-            pass
-        return None
+            peers = self.find_known_peers()
+            node = random.sample(peers, 1)[0]
+        return self.api_client.get_balance(address, node)
 
     def get_transaction_history(self, address=None, node=None):
         if address is None:
             address = self.get_public_key()
         if node is None:
-            node = random.sample(self.full_nodes, 1)[0]
-        url = self.TRANSACTION_HISTORY_URL.format(node, self.FULL_NODE_PORT, address)
-        try:
-            response = requests.get(url)
-            return response.json()
-        except requests.exceptions.RequestException as re:
-            pass
-        return None
+            peers = self.find_known_peers()
+            node = random.sample(peers, 1)[0]
+        return self.api_client.get_transaction_history(address, node)
 
     def create_transaction(self, to, amount, fee, prev_hash):
         transaction = Transaction(
@@ -70,23 +61,11 @@ class Client(NodeMixin):
             prev_hash=prev_hash
         )
         transaction.sign(self.get_private_key())
-        return self.broadcast_transaction(transaction)
+        return self.api_client.broadcast_transaction(transaction)
 
     def check_peers(self):
-        # Light client version of check peers
-        if self.peers.get_peers_count() < self.MIN_PEERS:
-            known_peers = self.find_known_peers()
-            for peer in known_peers:
-                if self.peers.get_peers_count() >= self.MIN_PEERS:
-                    break
-
-                status_url = self.STATUS_URL.format(peer, self.FULL_NODE_PORT)
-                try:
-                    response = requests.get(status_url)
-                    if response.status_code == 200 and json.loads(response.json()) == config['network']:
-                        self.peers.add_peer(peer)
-                except requests.exceptions.RequestException as re:
-                    pass
+        known_peers = self.find_known_peers()
+        self.api_client.check_peers_light(known_peers)
         return
 
 

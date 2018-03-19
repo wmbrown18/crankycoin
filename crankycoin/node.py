@@ -1,12 +1,13 @@
 import json
 import logging
 import multiprocessing as mp
+from bottle import Bottle
 
-import requests
 from crankycoin.repository import Blockchain, Mempool, Peers
 from crankycoin.models import Block, BlockHeader, Transaction, MessageType
-from crankycoin.services import Validator, Queue
-from crankycoin import config, logger, app
+from crankycoin.services import Validator, Queue, ApiClient
+from crankycoin.routes import permissioned_app, public_app
+from crankycoin import config, logger
 
 
 class NodeMixin(object):
@@ -28,53 +29,16 @@ class NodeMixin(object):
 
     def __init__(self):
         self.peers = Peers()
-
-    def request_nodes(self, node, port):
-        url = self.NODES_URL.format(node, port)
-        try:
-            response = requests.get(url)
-            if response.status_code == 200:
-                all_nodes = json.loads(response.json())
-                return all_nodes
-        except requests.exceptions.RequestException as re:
-            self.peers.record_downtime(node)
-        return None
+        self.api_client = ApiClient()
 
     def find_known_peers(self):
         peers = self.peers.get_all_peers()
         known_peers = peers.copy()
         for peer in peers:
-            nodes = self.request_nodes(peer, self.FULL_NODE_PORT)
+            nodes = self.api_client.request_nodes(peer, self.FULL_NODE_PORT)
             if nodes is not None:
                 known_peers = known_peers.union(nodes["full_nodes"])
         return known_peers
-
-    def ping_status(self, host):
-        url = self.STATUS_URL.format(host, self.FULL_NODE_PORT)
-        try:
-            response = requests.get(url)
-            if response.status_code == 200:
-                status_dict = json.loads(response.json())
-                return status_dict == config['network']
-        except requests.exceptions.RequestException as re:
-            pass
-        return None
-
-    def broadcast_transaction(self, transaction):
-        # Used only when broadcasting a transaction that originated locally
-        self.check_peers()
-        data = {
-            "transaction": transaction.to_dict()
-        }
-        for node in self.peers.get_all_peers():
-            url = self.TRANSACTIONS_URL.format(node, self.FULL_NODE_PORT, "")
-            try:
-                response = requests.post(url, json=data)
-                return response
-            except requests.exceptions.RequestException as re:
-                self.peers.record_downtime(node)
-        return None
-        # TODO: convert to grequests and return list of responses
 
     def check_peers(self):
         raise NotImplementedError
@@ -95,20 +59,23 @@ class FullNode(NodeMixin):
         mp.log_to_stderr()
         mp_logger = mp.get_logger()
         mp_logger.setLevel(logging.DEBUG)
+        self.app = Bottle()
+        self.app.merge(public_app)
+        self.app.merge(permissioned_app)
         self.blockchain = Blockchain()
         self.mempool = Mempool()
-        self.validator = Validator(self.blockchain, self.mempool)
+        self.validator = Validator()
 
     def start(self):
         logger.debug("queue process starting...")
         self.queue_process = mp.Process(target=Queue.start_queue)
         self.queue_process.start()
         logger.debug("worker process(es) starting...")
-        self.worker_processes = [mp.Process(target=self.worker) for _ in range(4)]
+        self.worker_processes = [mp.Process(target=self.worker) for _ in range(self.WORKER_PROCESSES)]
         for wp in self.worker_processes:
             wp.start()
         logger.debug("full node server starting on %s...", self.HOST)
-        self.bottle_process = mp.Process(target=app.run, kwargs=dict(host=self.HOST, port=self.FULL_NODE_PORT))
+        self.bottle_process = mp.Process(target=self.app.run, kwargs=dict(host=self.HOST, port=self.FULL_NODE_PORT))
         self.bottle_process.start()
         self.check_peers()
 
@@ -121,6 +88,11 @@ class FullNode(NodeMixin):
         logger.debug("queue process shutting down...")
         self.queue_process.terminate()
 
+    def check_peers(self):
+        known_peers = self.find_known_peers()
+        self.api_client.check_peers_full(self.HOST, known_peers)
+        return
+
     def worker(self):
         while True:
             msg = Queue.dequeue()
@@ -130,11 +102,11 @@ class FullNode(NodeMixin):
             if msg_type == MessageType.BLOCK_HEADER:
                 block_header = Block.from_dict(data)
                 if sender == self.HOST:
-                    self.broadcast_block_header(block_header)
+                    self.api_client.broadcast_block_header(block_header)
                 else:
                     # TODO: Block was mined by a peer.  Validate
                     if valid:
-                        self.broadcast_block_inv([block_header.hash])
+                        self.api_client.broadcast_block_inv([block_header.hash])
                 continue
             elif msg_type == MessageType.UNCONFIRMED_TRANSACTION:
                 unconfirmed_transaction = Transaction.from_dict(data)
@@ -143,7 +115,7 @@ class FullNode(NodeMixin):
                 else:
                     valid = self.validator.validate_transaction(unconfirmed_transaction)
                 if valid:
-                    self.broadcast_transaction_inv([unconfirmed_transaction.tx_hash])
+                    self.api_client.broadcast_transaction_inv([unconfirmed_transaction.tx_hash])
                 continue
             elif msg_type == MessageType.BLOCK_INV:
                 missing_block_headers = []
@@ -153,17 +125,17 @@ class FullNode(NodeMixin):
                         missing_block_headers.append(block_hash)
                 for block_hash in missing_block_headers:
                     # We don't have these blocks in our database.  Fetch them from the sender
-                    block_header = self.request_block_header(sender, self.FULL_NODE_PORT, block_hash=block_hash)
+                    block_header = self.api_client.request_block_header(sender, self.FULL_NODE_PORT, block_hash=block_hash)
                     prev_header = self.blockchain.get_block_header_by_hash(block_header.previous_hash)
                     # TODO: validate block_header hash
-                    transactions_inv = self.request_transactions_index(sender, self.FULL_NODE_PORT, block_hash)
+                    transactions_inv = self.api_client.request_transactions_index(sender, self.FULL_NODE_PORT, block_hash)
                     # TODO: validate transaction hashes and merkle root
                     block_transactions = []
                     for tx_hash in transactions_inv:
                         transaction = self.mempool.get_unconfirmed_transaction(tx_hash)
                         if transaction is None:
                             # We don't have this transaction in our database.  Fetch it from the sender
-                            transaction = self.request_transaction(sender, self.FULL_NODE_PORT, tx_hash)
+                            transaction = self.api_client.request_transaction(sender, self.FULL_NODE_PORT, tx_hash)
                         block_transactions.append(transaction)
 
                 continue
@@ -178,7 +150,7 @@ class FullNode(NodeMixin):
                         continue
                     missing_transactions.append(tx_hash)
                 for tx_hash in missing_transactions:
-                    transaction = self.request_transaction(sender, self.FULL_NODE_PORT, tx_hash)
+                    transaction = self.api_client.request_transaction(sender, self.FULL_NODE_PORT, tx_hash)
                     # TODO: validate transaction and place in mempool
                     if valid:
                         self.mempool.push_unconfirmed_transaction(transaction)
@@ -187,159 +159,155 @@ class FullNode(NodeMixin):
                 logger.warn("Encountered unknown message type %s from %s", msg_type, sender)
                 pass
 
-    def check_peers(self):
-        if self.peers.get_peers_count() < self.MIN_PEERS:
-            known_peers = self.find_known_peers()
-            host_data = {
-                "host": self.HOST
-            }
-
-            for peer in known_peers:
-                if self.peers.get_peers_count() >= self.MAX_PEERS:
-                    break
-                if peer == self.HOST:
-                    continue
-
-                status_url = self.STATUS_URL.format(peer, self.FULL_NODE_PORT)
-                connect_url = self.CONNECT_URL.format(peer, self.FULL_NODE_PORT)
-                try:
-                    response = requests.get(status_url)
-                    if response.status_code != 200 or json.loads(response.json()) != config['network']:
-                        continue
-                    response = requests.post(connect_url, json=host_data)
-                    if response.status_code == 202 and json.loads(response.json()).get("success") is True:
-                        self.peers.add_peer(peer)
-                except requests.exceptions.RequestException as re:
-                    pass
-        return
-
-    def request_block_header(self, node, port, block_hash=None, height=None):
-        if block_hash is not None:
-            url = self.BLOCKS_URL.format(node, port, "hash", block_hash)
-        elif height is not None:
-            url = self.BLOCKS_URL.format(node, port, "height", height)
-        else:
-            url = self.BLOCKS_URL.format(node, port, "height", "latest")
-        try:
-            response = requests.get(url)
-            if response.status_code == 200:
-                block_dict = json.loads(response.json())
-                block_header = BlockHeader(
-                    block_dict['previous_hash'],
-                    block_dict['merkle_root'],
-                    block_dict['timestamp'],
-                    block_dict['nonce'],
-                    block_dict['version'])
-                return block_header
-        except requests.exceptions.RequestException as re:
-            logger.warn("Request Exception with host: {}".format(node))
-            self.peers.record_downtime(node)
-        return None
-
-    def request_transaction(self, node, port, tx_hash):
-        url = self.TRANSACTIONS_URL.format(node, port, tx_hash)
-        try:
-            response = requests.get(url)
-            if response.status_code == 200:
-                tx_dict = json.loads(response.json())
-                transaction = Transaction(
-                    tx_dict['source'],
-                    tx_dict['destination'],
-                    tx_dict['amount'],
-                    tx_dict['fee'],
-                    tx_dict['prev_hash'],
-                    tx_dict['tx_type'],
-                    tx_dict['timestamp'],
-                    tx_dict['tx_hash'],
-                    tx_dict['asset'],
-                    tx_dict['data'],
-                    tx_dict['signature']
-                )
-                if transaction.tx_hash != tx_dict['tx_hash']:
-                    logger.warn("Invalid transaction hash: {} should be {}.  Transaction ignored."
-                                .format(tx_dict['tx_hash'], transaction.tx_hash))
-                    return None
-                return transaction
-        except requests.exceptions.RequestException as re:
-            logger.warn("Request Exception with host: {}".format(node))
-            self.peers.record_downtime(node)
-        return None
-
-    def request_transactions_index(self, node, port, block_hash):
-        # Request a list of transaction hashes that belong to a block hash. Used when recreating a block from a
-        # block header
-        url = self.TRANSACTIONS_INV_URL.format(node, port, block_hash)
-        try:
-            response = requests.get(url)
-            if response.status_code == 200:
-                tx_dict = json.loads(response.json())
-                return tx_dict['tx_hashes']
-        except requests.exceptions.RequestException as re:
-            logger.warn("Request Exception with host: {}".format(node))
-            self.peers.record_downtime(node)
-        return None
-
-    def request_blocks_inv(self, node, port, start_height, stop_height):
-        # Used when a synchronization between peers is needed
-        url = self.BLOCKS_INV_URL.format(node, port, start_height, stop_height)
-        try:
-            response = requests.get(url)
-            if response.status_code == 200:
-                block_dict = json.loads(response.json())
-                return block_dict['block_hashes']
-        except requests.exceptions.RequestException as re:
-            logger.warn("Request Exception with host: {}".format(node))
-            self.peers.record_downtime(node)
-        return None
-
-    def broadcast_block_inv(self, block_hashes):
-        # Used for (re)broadcasting a new block that was received and added
-        self.check_peers()
-        data = {
-            "block_hashes": block_hashes
-        }
-        for node in self.peers.get_all_peers():
-            url = self.INBOX_URL.format(node, self.FULL_NODE_PORT)
-            try:
-                response = requests.post(url, json=data)
-            except requests.exceptions.RequestException as re:
-                logger.warn("Request Exception with host: {}".format(node))
-                self.peers.record_downtime(node)
-        return
-
-    def broadcast_transaction_inv(self, tx_hashes):
-        # Used for (re)broadcasting a new transaction that was received and added
-        self.check_peers()
-        data = {
-            "tx_hashes": tx_hashes
-        }
-        for node in self.peers.get_all_peers():
-            url = self.INBOX_URL.format(node, self.FULL_NODE_PORT)
-            try:
-                response = requests.post(url, json=data)
-            except requests.exceptions.RequestException as re:
-                logger.warn("Request Exception with host: {}".format(node))
-                self.peers.record_downtime(node)
-        return
-
-    def broadcast_block_header(self, block_header):
-        # Used only when broadcasting a block header that originated (mined) locally
-        self.check_peers()
-        data = {
-            "block_header": block_header.to_json()
-        }
-        for node in self.peers.get_all_peers():
-            url = self.INBOX_URL.format(node, self.FULL_NODE_PORT)
-            try:
-                response = requests.post(url, json=data)
-            except requests.exceptions.RequestException as re:
-                logger.warn("Request Exception with host: {}".format(node))
-                self.peers.record_downtime(node)
-        return
-
-    def __remove_unconfirmed_transactions(self, transactions):
-        self.mempool.remove_unconfirmed_transactions(transactions)
-
+    # def check_peers(self):
+    #     if self.peers.get_peers_count() < self.MIN_PEERS:
+    #         known_peers = self.find_known_peers()
+    #         host_data = {
+    #             "host": self.HOST
+    #         }
+    #
+    #         for peer in known_peers:
+    #             if self.peers.get_peers_count() >= self.MAX_PEERS:
+    #                 break
+    #             if peer == self.HOST:
+    #                 continue
+    #
+    #             status_url = self.STATUS_URL.format(peer, self.FULL_NODE_PORT)
+    #             connect_url = self.CONNECT_URL.format(peer, self.FULL_NODE_PORT)
+    #             try:
+    #                 response = requests.get(status_url)
+    #                 if response.status_code != 200 or json.loads(response.json()) != config['network']:
+    #                     continue
+    #                 response = requests.post(connect_url, json=host_data)
+    #                 if response.status_code == 202 and json.loads(response.json()).get("success") is True:
+    #                     self.peers.add_peer(peer)
+    #             except requests.exceptions.RequestException as re:
+    #                 pass
+    #     return
+    #
+    # def request_block_header(self, node, port, block_hash=None, height=None):
+    #     if block_hash is not None:
+    #         url = self.BLOCKS_URL.format(node, port, "hash", block_hash)
+    #     elif height is not None:
+    #         url = self.BLOCKS_URL.format(node, port, "height", height)
+    #     else:
+    #         url = self.BLOCKS_URL.format(node, port, "height", "latest")
+    #     try:
+    #         response = requests.get(url)
+    #         if response.status_code == 200:
+    #             block_dict = json.loads(response.json())
+    #             block_header = BlockHeader(
+    #                 block_dict['previous_hash'],
+    #                 block_dict['merkle_root'],
+    #                 block_dict['timestamp'],
+    #                 block_dict['nonce'],
+    #                 block_dict['version'])
+    #             return block_header
+    #     except requests.exceptions.RequestException as re:
+    #         logger.warn("Request Exception with host: {}".format(node))
+    #         self.peers.record_downtime(node)
+    #     return None
+    #
+    # def request_transaction(self, node, port, tx_hash):
+    #     url = self.TRANSACTIONS_URL.format(node, port, tx_hash)
+    #     try:
+    #         response = requests.get(url)
+    #         if response.status_code == 200:
+    #             tx_dict = json.loads(response.json())
+    #             transaction = Transaction(
+    #                 tx_dict['source'],
+    #                 tx_dict['destination'],
+    #                 tx_dict['amount'],
+    #                 tx_dict['fee'],
+    #                 tx_dict['prev_hash'],
+    #                 tx_dict['tx_type'],
+    #                 tx_dict['timestamp'],
+    #                 tx_dict['tx_hash'],
+    #                 tx_dict['asset'],
+    #                 tx_dict['data'],
+    #                 tx_dict['signature']
+    #             )
+    #             if transaction.tx_hash != tx_dict['tx_hash']:
+    #                 logger.warn("Invalid transaction hash: {} should be {}.  Transaction ignored."
+    #                             .format(tx_dict['tx_hash'], transaction.tx_hash))
+    #                 return None
+    #             return transaction
+    #     except requests.exceptions.RequestException as re:
+    #         logger.warn("Request Exception with host: {}".format(node))
+    #         self.peers.record_downtime(node)
+    #     return None
+    #
+    # def request_transactions_index(self, node, port, block_hash):
+    #     # Request a list of transaction hashes that belong to a block hash. Used when recreating a block from a
+    #     # block header
+    #     url = self.TRANSACTIONS_INV_URL.format(node, port, block_hash)
+    #     try:
+    #         response = requests.get(url)
+    #         if response.status_code == 200:
+    #             tx_dict = json.loads(response.json())
+    #             return tx_dict['tx_hashes']
+    #     except requests.exceptions.RequestException as re:
+    #         logger.warn("Request Exception with host: {}".format(node))
+    #         self.peers.record_downtime(node)
+    #     return None
+    #
+    # def request_blocks_inv(self, node, port, start_height, stop_height):
+    #     # Used when a synchronization between peers is needed
+    #     url = self.BLOCKS_INV_URL.format(node, port, start_height, stop_height)
+    #     try:
+    #         response = requests.get(url)
+    #         if response.status_code == 200:
+    #             block_dict = json.loads(response.json())
+    #             return block_dict['block_hashes']
+    #     except requests.exceptions.RequestException as re:
+    #         logger.warn("Request Exception with host: {}".format(node))
+    #         self.peers.record_downtime(node)
+    #     return None
+    #
+    # def broadcast_block_inv(self, block_hashes):
+    #     # Used for (re)broadcasting a new block that was received and added
+    #     self.check_peers()
+    #     data = {
+    #         "block_hashes": block_hashes
+    #     }
+    #     for node in self.peers.get_all_peers():
+    #         url = self.INBOX_URL.format(node, self.FULL_NODE_PORT)
+    #         try:
+    #             response = requests.post(url, json=data)
+    #         except requests.exceptions.RequestException as re:
+    #             logger.warn("Request Exception with host: {}".format(node))
+    #             self.peers.record_downtime(node)
+    #     return
+    #
+    # def broadcast_transaction_inv(self, tx_hashes):
+    #     # Used for (re)broadcasting a new transaction that was received and added
+    #     self.check_peers()
+    #     data = {
+    #         "tx_hashes": tx_hashes
+    #     }
+    #     for node in self.peers.get_all_peers():
+    #         url = self.INBOX_URL.format(node, self.FULL_NODE_PORT)
+    #         try:
+    #             response = requests.post(url, json=data)
+    #         except requests.exceptions.RequestException as re:
+    #             logger.warn("Request Exception with host: {}".format(node))
+    #             self.peers.record_downtime(node)
+    #     return
+    #
+    # def broadcast_block_header(self, block_header):
+    #     # Used only when broadcasting a block header that originated (mined) locally
+    #     self.check_peers()
+    #     data = {
+    #         "block_header": block_header.to_json()
+    #     }
+    #     for node in self.peers.get_all_peers():
+    #         url = self.INBOX_URL.format(node, self.FULL_NODE_PORT)
+    #         try:
+    #             response = requests.post(url, json=data)
+    #         except requests.exceptions.RequestException as re:
+    #             logger.warn("Request Exception with host: {}".format(node))
+    #             self.peers.record_downtime(node)
+    #     return
 
     # def request_blocks_range(self, node, port, start_index, stop_index):
     #     # TODO: Deprecate

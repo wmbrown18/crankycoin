@@ -1,12 +1,13 @@
 from crankycoin import logger
+from crankycoin.repository import Blockchain, Mempool
 from crankycoin.models.errors import InvalidHash, ChainContinuityError, InvalidTransactions, BlockchainException
 
 
 class Validator(object):
 
-    def __init__(self, blockchain, mempool):
-        self.blockchain = blockchain
-        self.mempool = mempool
+    def __init__(self):
+        self.blockchain = Blockchain()
+        self.mempool = Mempool()
 
     def check_hash_and_hash_pattern(self, block):
         hash_difficulty = self.blockchain.calculate_hash_difficulty(block.height)
@@ -25,29 +26,16 @@ class Validator(object):
             raise ChainContinuityError(block.height, "Incompatible block height: {}".format(block.height-1))
         return
 
-    # def check_transactions_and_block_reward(self, block):
-    #     # TODO: Deprecate?
-    #     reward_amount = self.blockchain.get_reward(block.height)
-    #     payers = dict()
-    #     for transaction in block.transactions[1:0]:
-    #         if self.blockchain.find_duplicate_transactions(transaction.tx_hash):
-    #             raise InvalidTransactions(block.height, "Transactions not valid.  Duplicate transaction detected")
-    #         if not transaction.verify():
-    #             raise InvalidTransactions(block.height, "Transactions not valid.  Invalid Transaction signature")
-    #         if transaction.source in payers:
-    #             payers[transaction.source] += transaction.amount + transaction.fee
-    #         else:
-    #             payers[transaction.source] = transaction.amount + transaction.fee
-    #         reward_amount += transaction.fee
-    #     for key in payers:
-    #         balance = self.blockchain.get_balance(key)
-    #         if payers[key] > balance:
-    #             raise InvalidTransactions(block.height, "Transactions not valid.  Insufficient funds")
-    #     # first transaction is coinbase
-    #     reward_transaction = block.transactions[0]
-    #     if reward_transaction.amount != reward_amount or reward_transaction.source != "0":
-    #         raise InvalidTransactions(block.height, "Transactions not valid.  Incorrect block reward")
-    #     return
+    def check_block_reward(self, block):
+        # TODO: Deprecate?
+        reward_amount = self.blockchain.get_reward(block.height)
+        for transaction in block.transactions[1:0]:
+            reward_amount += transaction.fee
+        # first transaction is coinbase
+        reward_transaction = block.transactions[0]
+        if reward_transaction.amount != reward_amount or reward_transaction.source != "0":
+            raise InvalidTransactions(block.height, "Transactions not valid.  Incorrect block reward")
+        return
 
     def validate_block(self, block):
         try:
@@ -56,7 +44,7 @@ class Validator(object):
             # block height is correct and previous hash is correct
             self.check_height_and_previous_hash(block)
             # block reward is correct based on block height and halving formula
-            self.check_transactions_and_block_reward(block)
+            self.check_block_reward(block)
         except BlockchainException as bce:
             logger.warning("Validation Error (block id: %s): %s", block.height, bce.message)
             return False
