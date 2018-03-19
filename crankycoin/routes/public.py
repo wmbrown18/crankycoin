@@ -1,80 +1,82 @@
 import json
-from crankycoin import app
+from crankycoin import app, logger, config
+from crankycoin.services import Validator
+from crankycoin.models import Transaction
+from crankycoin.repository import Peers, Mempool, Blockchain
 
 
-@app.route('/status/', methods=['GET'])
-def get_status(self, request):
+@app.route('/status/')
+def get_status(request):
     return json.dumps(config['network'])
 
 
-@app.route('/nodes/', methods=['GET'])
-def get_nodes(self, request):
+@app.route('/nodes/')
+def get_nodes(request):
+    peers = Peers()
     nodes = {
-        "full_nodes": self.peers.get_all_peers()
+        "full_nodes": peers.get_all_peers()
     }
     return json.dumps(nodes)
 
 
-@app.route('/unconfirmed_tx/<tx_hash>', methods=['GET'])
-def get_unconfirmed_tx(self, request, tx_hash):
-    unconfirmed_transaction = self.mempool.get_unconfirmed_transaction(tx_hash)
+@app.route('/unconfirmed_tx/<tx_hash>')
+def get_unconfirmed_tx(request, tx_hash):
+    mempool = Mempool()
+    unconfirmed_transaction = mempool.get_unconfirmed_transaction(tx_hash)
     if unconfirmed_transaction:
         return json.dumps(unconfirmed_transaction.to_dict())
     request.setResponseCode(404)
     return json.dumps({'success': False, 'reason': 'Transaction Not Found'})
 
 
-@app.route('/unconfirmed_tx/count', methods=['GET'])
-def get_unconfirmed_transactions_count(self, request):
-    return json.dumps(self.mempool.get_unconfirmed_transactions_count())
+@app.route('/unconfirmed_tx/count')
+def get_unconfirmed_transactions_count(request):
+    mempool = Mempool()
+    return json.dumps(mempool.get_unconfirmed_transactions_count())
 
 
-@app.route('/unconfirmed_tx/', methods=['GET'])
-def get_unconfirmed_transactions(self, request):
+@app.route('/unconfirmed_tx/')
+def get_unconfirmed_transactions(request):
+    mempool = Mempool()
     return json.dumps([transaction.to_dict()
-                       for transaction in self.mempool.get_all_unconfirmed_transactions_iter()])
+                       for transaction in mempool.get_all_unconfirmed_transactions_iter()])
 
 
-@app.route('/address/<address>/balance', methods=['GET'])
-def get_balance(self, request, address):
-    return json.dumps(self.blockchain.get_balance(address))
+@app.route('/address/<address>/balance')
+def get_balance(request, address):
+    blockchain = Blockchain()
+    return json.dumps(blockchain.get_balance(address))
 
 
-@app.route('/address/<address>/transactions', methods=['GET'])
-def get_transaction_history(self, request, address):
-    return json.dumps(self.blockchain.get_transaction_history(address))
+@app.route('/address/<address>/transactions')
+def get_transaction_history(request, address):
+    blockchain = Blockchain()
+    return json.dumps(blockchain.get_transaction_history(address))
 
 
-@app.route('/transactions/<tx_hash>', methods=['GET'])
-def get_transaction(self, request, tx_hash):
-    transaction = self.blockchain.get_transaction_by_hash(tx_hash)
+@app.route('/transactions/<tx_hash>')
+def get_transaction(request, tx_hash):
+    blockchain = Blockchain()
+    transaction = blockchain.get_transaction_by_hash(tx_hash)
     if transaction:
         return json.dumps(transaction.to_dict())
     request.setResponseCode(404)
     return json.dumps({'success': False, 'reason': 'Transaction Not Found'})
 
 
-@app.route('/transactions/', methods=['POST'])
-def post_transactions(self, request):
+@app.route('/transactions/', method='POST')
+def post_transactions(request):
+    mempool = Mempool()
+    blockchain = Blockchain()
     body = json.loads(request.content.read())
-    transaction = Transaction(
-        body['transaction']['source'],
-        body['transaction']['destination'],
-        body['transaction']['amount'],
-        body['transaction']['fee'],
-        prev_hash=body['transaction']['prev_hash'],
-        tx_type=body['transaction']['tx_type'],
-        timestamp=body['transaction']['timestamp'],
-        asset=body['transaction']['asset'],
-        data=body['transaction']['data'],
-        signature=body['transaction']['signature'])
+    transaction = Transaction.from_dict(body['transaction'])
     if transaction.tx_hash != body['transaction']['tx_hash']:
-        logger.warn("Invalid transaction hash: {} should be {}".format(body['transaction']['tx_hash'], transaction.tx_hash))
+        logger.info("Invalid transaction hash: {} should be {}".format(body['transaction']['tx_hash'], transaction.tx_hash))
         request.setResponseCode(406)
         return json.dumps({'message': 'Invalid transaction hash'})
-    if self.mempool.get_unconfirmed_transaction(transaction.tx_hash) is None \
-            and self.blockchain.validate_transaction(transaction) \
-            and self.mempool.push_unconfirmed_transaction(transaction):
+    if mempool.get_unconfirmed_transaction(transaction.tx_hash) is None \
+            and blockchain.validate_transaction(transaction) \
+            and mempool.push_unconfirmed_transaction(transaction):
         request.setResponseCode(200)
         return json.dumps({'success': True, 'tx_hash': transaction.tx_hash})
     request.setResponseCode(406)

@@ -25,28 +25,29 @@ class Validator(object):
             raise ChainContinuityError(block.height, "Incompatible block height: {}".format(block.height-1))
         return
 
-    def check_transactions_and_block_reward(self, block):
-        reward_amount = self.blockchain.get_reward(block.height)
-        payers = dict()
-        for transaction in block.transactions[1:0]:
-            if self.blockchain.find_duplicate_transactions(transaction.tx_hash):
-                raise InvalidTransactions(block.height, "Transactions not valid.  Duplicate transaction detected")
-            if not transaction.verify():
-                raise InvalidTransactions(block.height, "Transactions not valid.  Invalid Transaction signature")
-            if transaction.source in payers:
-                payers[transaction.source] += transaction.amount + transaction.fee
-            else:
-                payers[transaction.source] = transaction.amount + transaction.fee
-            reward_amount += transaction.fee
-        for key in payers:
-            balance = self.blockchain.get_balance(key)
-            if payers[key] > balance:
-                raise InvalidTransactions(block.height, "Transactions not valid.  Insufficient funds")
-        # first transaction is coinbase
-        reward_transaction = block.transactions[0]
-        if reward_transaction.amount != reward_amount or reward_transaction.source != "0":
-            raise InvalidTransactions(block.height, "Transactions not valid.  Incorrect block reward")
-        return
+    # def check_transactions_and_block_reward(self, block):
+    #     # TODO: Deprecate?
+    #     reward_amount = self.blockchain.get_reward(block.height)
+    #     payers = dict()
+    #     for transaction in block.transactions[1:0]:
+    #         if self.blockchain.find_duplicate_transactions(transaction.tx_hash):
+    #             raise InvalidTransactions(block.height, "Transactions not valid.  Duplicate transaction detected")
+    #         if not transaction.verify():
+    #             raise InvalidTransactions(block.height, "Transactions not valid.  Invalid Transaction signature")
+    #         if transaction.source in payers:
+    #             payers[transaction.source] += transaction.amount + transaction.fee
+    #         else:
+    #             payers[transaction.source] = transaction.amount + transaction.fee
+    #         reward_amount += transaction.fee
+    #     for key in payers:
+    #         balance = self.blockchain.get_balance(key)
+    #         if payers[key] > balance:
+    #             raise InvalidTransactions(block.height, "Transactions not valid.  Insufficient funds")
+    #     # first transaction is coinbase
+    #     reward_transaction = block.transactions[0]
+    #     if reward_transaction.amount != reward_amount or reward_transaction.source != "0":
+    #         raise InvalidTransactions(block.height, "Transactions not valid.  Incorrect block reward")
+    #     return
 
     def validate_block(self, block):
         try:

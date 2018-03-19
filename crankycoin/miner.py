@@ -2,44 +2,45 @@ import logging
 import multiprocessing as mp
 import time
 
-from crankycoin.models import Block, Transaction
+from crankycoin.models import Block, Transaction, MessageType
 from crankycoin.repository import Blockchain, Mempool
+from crankycoin.services import Queue
 from crankycoin import config, logger
 
 
 class Miner(object):
 
+    HOST = config['user']['ip']
+    REWARD_ADDRESS = config['user']['public_key']
     MAX_TRANSACTIONS_PER_BLOCK = config['network']['max_transactions_per_block']
+    miner_process = None
 
-    def __init__(self, reward_address, queue):
+    def __init__(self):
         mp.log_to_stderr()
         mp_logger = mp.get_logger()
         mp_logger.setLevel(logging.DEBUG)
-        self.reward_address = reward_address
-        self.queue = queue
         self.blockchain = Blockchain()
         self.mempool = Mempool()
-        self.miner_process = mp.Process(target=self.mine, args=[self.queue])
 
     def start(self):
-        logger.debug("mining process starting with reward address %s...", self.reward_address)
+        logger.debug("mining process starting with reward address %s...", self.REWARD_ADDRESS)
+        self.miner_process = mp.Process(target=self.mine)
         self.miner_process.start()
 
     def shutdown(self):
-        logger.debug("mining process with reward address %s shutting down...", self.reward_address)
+        logger.debug("mining process with reward address %s shutting down...", self.REWARD_ADDRESS)
         self.miner_process.terminate()
 
-    def mine(self, queue):
+    def mine(self):
         while True:
             block = self.mine_block()
             if not block:
                 continue
-            queue.put({"block": block})
-            logger.info("Block {} found with hash {} and nonce {}"
-                        .format(block.height, block.block_header.hash, block.block_header.nonce))
-            # if self.blockchain.add_block(block):
-            #     self.mempool.remove_unconfirmed_transactions(block.transactions[1:])
-            #     self.broadcast_block_inv(block.block_header.hash)
+            logger.info("Block {} found at height {} and nonce {}"
+                        .format(block.block_header.hash, block.height, block.block_header.nonce))
+            if self.blockchain.add_block(block):
+                self.mempool.remove_unconfirmed_transactions(block.transactions[1:])
+                Queue.enqueue({"host": self.HOST, "type": MessageType.BLOCK_HEADER, "data": block})
         return
 
     def mine_block(self):
@@ -56,7 +57,7 @@ class Miner(object):
         # coinbase
         coinbase = Transaction(
             "0",
-            self.reward_address,
+            self.REWARD_ADDRESS,
             self.blockchain.get_reward(new_block_id) + fees,
             0,
             "0"

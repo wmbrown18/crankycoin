@@ -19,6 +19,7 @@ class Client(NodeMixin):
             self.__private_key__ = coincurve.PrivateKey()
         self.__public_key__ = self.__private_key__.public_key
         super(Client, self).__init__()
+        self.check_peers()
 
     def get_public_key(self):
         return self.__public_key__.format(compressed=True).encode('hex')

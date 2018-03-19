@@ -71,13 +71,14 @@ class Blockchain(object):
             VALUES ({}, {}, {}, {}, {}, {}, {}, {})'.format(block.block_header.hash, block.block_header.previous_hash,
                 block.block_header.merkle_root, block.height, block.block_header.nonce, block.block_header.timestamp,
                 block.block_header.version, branch))
-        for transaction in block.transactions:
+        for idx, transaction in enumerate(block.transactions):
             sql_strings.append('INSERT INTO transactions (hash, src, dest, amount, fee, timestamp, signature, type,\
-                blockHash, asset, data, branch, prevHash) VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},\
-                {})'.format(
+                blockHash, asset, data, branch, prevHash, blockIndex) VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {},\
+                {}, {}, {}, {})'.format(
                     transaction.tx_hash, transaction.source, transaction.destination, transaction.amount,
                     transaction.fee, transaction.timestamp, transaction.signature, transaction.tx_type,
-                    block.block_header.hash, transaction.asset, transaction.data, branch, transaction.prev_hash))
+                    block.block_header.hash, transaction.asset, transaction.data, branch, transaction.prev_hash,
+                    idx))
         sql_strings.append('UPDATE branches SET currentHash = {}, currentHeight = {} WHERE id = {}'
                            .format(block.block_header.hash, block.height, branch))
 
@@ -156,7 +157,7 @@ class Blockchain(object):
 
     def get_transactions_by_block_hash(self, block_hash):
         transactions = []
-        sql = 'SELECT * FROM transactions WHERE blockHash='.format(block_hash)
+        sql = 'SELECT * FROM transactions WHERE blockHash={} ORDER BY blockIndex ASC'.format(block_hash)
         with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
@@ -168,7 +169,7 @@ class Blockchain(object):
         return transactions
 
     def get_transaction_hashes_by_block_hash(self, block_hash):
-        sql = 'SELECT hash FROM transactions WHERE blockHash='.format(block_hash)
+        sql = 'SELECT hash FROM transactions WHERE blockHash={} ORDER BY blockIndex ASC'.format(block_hash)
         with sqlite3.connect(self.CHAIN_DB) as conn:
             conn.row_factory = lambda cursor, row: row[0]
             cursor = conn.cursor()

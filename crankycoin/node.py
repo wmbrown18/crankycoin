@@ -1,12 +1,11 @@
 import json
 import logging
 import multiprocessing as mp
-from threading import Thread
 
 import requests
 from crankycoin.repository import Blockchain, Mempool, Peers
-from crankycoin.models import BlockHeader, Transaction
-from crankycoin.services import Validator
+from crankycoin.models import Block, BlockHeader, Transaction, MessageType
+from crankycoin.services import Validator, Queue
 from crankycoin import config, logger, app
 
 
@@ -29,7 +28,6 @@ class NodeMixin(object):
 
     def __init__(self):
         self.peers = Peers()
-        self.check_peers()
 
     def request_nodes(self, node, port):
         url = self.NODES_URL.format(node, port)
@@ -83,52 +81,123 @@ class NodeMixin(object):
 
 
 class FullNode(NodeMixin):
-    NODE_TYPE = "full"
-    blockchain = None
 
-    def __init__(self, host, reward_address, queue):
+    NODE_TYPE = "full"
+    HOST = config['user']['ip']
+    WORKER_PROCESSES = config['user']['queue_processing_workers']
+    blockchain = None
+    bottle_process = None
+    queue_process = None
+    worker_processes = None
+
+    def __init__(self):
+        super(FullNode, self).__init__()
         mp.log_to_stderr()
         mp_logger = mp.get_logger()
         mp_logger.setLevel(logging.DEBUG)
-        self.host = host
-        self.queue = queue
-        self.reward_address = reward_address
         self.blockchain = Blockchain()
         self.mempool = Mempool()
-        self.validation = Validator(self.blockchain, self.mempool)
-        self.dequeue_process = mp.Process(target=self.dequeue, args=[self.queue])
-        self.bottle_thread = Thread(target=app.run, kwargs=dict(host=host, port=self.FULL_NODE_PORT))
+        self.validator = Validator(self.blockchain, self.mempool)
 
-        logger.debug("dequeue process starting...")
-        self.dequeue_process.start()
-        logger.debug("full node server starting on %s...", host)
-        self.bottle_thread.start()
-        super(FullNode, self).__init__()
+    def start(self):
+        logger.debug("queue process starting...")
+        self.queue_process = mp.Process(target=Queue.start_queue)
+        self.queue_process.start()
+        logger.debug("worker process(es) starting...")
+        self.worker_processes = [mp.Process(target=self.worker) for _ in range(4)]
+        for wp in self.worker_processes:
+            wp.start()
+        logger.debug("full node server starting on %s...", self.HOST)
+        self.bottle_process = mp.Process(target=app.run, kwargs=dict(host=self.HOST, port=self.FULL_NODE_PORT))
+        self.bottle_process.start()
+        self.check_peers()
 
     def shutdown(self):
-        logger.debug("full node on %s shutting down...", self.host)
-        self.bottle_thread.join()
-        logger.debug("dequeue process shutting down...")
-        self.dequeue_process.terminate()
+        logger.debug("full node on %s shutting down...", self.HOST)
+        self.bottle_process.terminate()
+        logger.debug("worker process(es) shutting down...")
+        for wp in self.worker_processes:
+            wp.terminate()
+        logger.debug("queue process shutting down...")
+        self.queue_process.terminate()
 
-    def dequeue(self, queue):
+    def worker(self):
         while True:
-            msg = queue.get()
-            if msg == 'SIG_EXIT':
-                break
-            return msg
+            msg = Queue.dequeue()
+            sender = msg.get('host')
+            msg_type = msg.get('type')
+            data = msg.get('data')
+            if msg_type == MessageType.BLOCK_HEADER:
+                block_header = Block.from_dict(data)
+                if sender == self.HOST:
+                    self.broadcast_block_header(block_header)
+                else:
+                    # TODO: Block was mined by a peer.  Validate
+                    if valid:
+                        self.broadcast_block_inv([block_header.hash])
+                continue
+            elif msg_type == MessageType.UNCONFIRMED_TRANSACTION:
+                unconfirmed_transaction = Transaction.from_dict(data)
+                if sender == self.HOST:
+                    valid = True
+                else:
+                    valid = self.validator.validate_transaction(unconfirmed_transaction)
+                if valid:
+                    self.broadcast_transaction_inv([unconfirmed_transaction.tx_hash])
+                continue
+            elif msg_type == MessageType.BLOCK_INV:
+                missing_block_headers = []
+                for block_hash in data:
+                    block_header = self.blockchain.get_block_header_by_hash(block_hash)
+                    if block_header is None:
+                        missing_block_headers.append(block_hash)
+                for block_hash in missing_block_headers:
+                    # We don't have these blocks in our database.  Fetch them from the sender
+                    block_header = self.request_block_header(sender, self.FULL_NODE_PORT, block_hash=block_hash)
+                    prev_header = self.blockchain.get_block_header_by_hash(block_header.previous_hash)
+                    # TODO: validate block_header hash
+                    transactions_inv = self.request_transactions_index(sender, self.FULL_NODE_PORT, block_hash)
+                    # TODO: validate transaction hashes and merkle root
+                    block_transactions = []
+                    for tx_hash in transactions_inv:
+                        transaction = self.mempool.get_unconfirmed_transaction(tx_hash)
+                        if transaction is None:
+                            # We don't have this transaction in our database.  Fetch it from the sender
+                            transaction = self.request_transaction(sender, self.FULL_NODE_PORT, tx_hash)
+                        block_transactions.append(transaction)
+
+                continue
+            elif msg_type == MessageType.TRANSACTION_INV:
+                missing_transactions = []
+                for tx_hash in data:
+                    transaction = self.blockchain.get_transaction_by_hash(tx_hash)
+                    if transaction:
+                        continue
+                    unconfirmed_transaction = self.mempool.get_unconfirmed_transaction(tx_hash)
+                    if unconfirmed_transaction:
+                        continue
+                    missing_transactions.append(tx_hash)
+                for tx_hash in missing_transactions:
+                    transaction = self.request_transaction(sender, self.FULL_NODE_PORT, tx_hash)
+                    # TODO: validate transaction and place in mempool
+                    if valid:
+                        self.mempool.push_unconfirmed_transaction(transaction)
+                continue
+            else:
+                logger.warn("Encountered unknown message type %s from %s", msg_type, sender)
+                pass
 
     def check_peers(self):
         if self.peers.get_peers_count() < self.MIN_PEERS:
             known_peers = self.find_known_peers()
             host_data = {
-                "host": self.host
+                "host": self.HOST
             }
 
             for peer in known_peers:
                 if self.peers.get_peers_count() >= self.MAX_PEERS:
                     break
-                if peer == self.host:
+                if peer == self.HOST:
                     continue
 
                 status_url = self.STATUS_URL.format(peer, self.FULL_NODE_PORT)
@@ -196,7 +265,7 @@ class FullNode(NodeMixin):
             self.peers.record_downtime(node)
         return None
 
-    def request_transactions_inv(self, node, port, block_hash):
+    def request_transactions_index(self, node, port, block_hash):
         # Request a list of transaction hashes that belong to a block hash. Used when recreating a block from a
         # block header
         url = self.TRANSACTIONS_INV_URL.format(node, port, block_hash)
@@ -346,11 +415,11 @@ class FullNode(NodeMixin):
     #     bad_nodes = set()
     #     data = {
     #         "block": block.to_json(),
-    #         "host": self.host
+    #         "host": self.HOST
     #     }
     #
     #     for node in self.full_nodes:
-    #         if node == self.host:
+    #         if node == self.HOST:
     #             continue
     #         url = self.BLOCKS_URL.format(node, self.FULL_NODE_PORT, "")
     #         try:
@@ -373,7 +442,7 @@ class FullNode(NodeMixin):
 
     # def add_node(self, host):
     #     # TODO: Deprecate
-    #     if host == self.host:
+    #     if host == self.HOST:
     #         return
     #
     #     if host not in self.full_nodes:
@@ -389,7 +458,7 @@ class FullNode(NodeMixin):
     #     }
     #
     #     for node in self.full_nodes:
-    #         if node == self.host:
+    #         if node == self.HOST:
     #             continue
     #         url = self.NODES_URL.format(node, self.FULL_NODE_PORT)
     #         try:

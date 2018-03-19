@@ -8,8 +8,7 @@ import requests
 import sys
 from getpass import getpass
 from Cryptodome.Cipher import AES
-from multiprocessing import Queue
-from crankycoin import app, config, logger
+from crankycoin import config, logger
 from crankycoin.node import FullNode
 from crankycoin.wallet import Client
 from crankycoin.miner import Miner
@@ -33,7 +32,7 @@ def client():
     encrypted = config['user']['encrypted_private_key']
     if encrypted is None:
         print("\n\nNo private key provided. A new wallet will be generated for you...\n\n")
-        client = Client()
+        wallet = Client()
     else:
         passphrase = getpass("Enter passphrase: ")
         encrypted = encrypted.decode('hex')
@@ -44,7 +43,7 @@ def client():
         cipher = AES.new(hashedpass, AES.MODE_EAX, nonce)
         try:
             private_key = cipher.decrypt_and_verify(ciphertext, tag)
-            client = Client(private_key)
+            wallet = Client(private_key)
         except ValueError as ve:
             logger.warn('Invalid passphrase')
             print("\n\nInvalid passphrase\n\n")
@@ -56,23 +55,23 @@ def client():
         try:
             if cmd_split[0] == "balance":
                 if len(cmd_split) == 2:
-                    print(client.get_balance(cmd_split[1]))
+                    print(wallet.get_balance(cmd_split[1]))
                 else:
-                    print(client.get_balance())
+                    print(wallet.get_balance())
             elif cmd_split[0] == "send":
                 if len(cmd_split) == 4:
-                    print(client.create_transaction(cmd_split[1], float(cmd_split[2]), float(cmd_split[3])))
+                    print(wallet.create_transaction(cmd_split[1], float(cmd_split[2]), float(cmd_split[3])))
                 else:
                     print("\nRequires destination, amount, fee\n")
             elif cmd_split[0] == "publickey":
-                print(client.get_public_key())
+                print(wallet.get_public_key())
             elif cmd_split[0] == "privatekey":
-                print(client.get_private_key())
+                print(wallet.get_private_key())
             elif cmd_split[0] == "history":
                 if len(cmd_split) == 2:
-                    print(client.get_transaction_history(cmd_split[1]))
+                    print(wallet.get_transaction_history(cmd_split[1]))
                 else:
-                    print(client.get_transaction_history())
+                    print(wallet.get_transaction_history())
             elif cmd_split[0] in ("quit", "exit"):
                 sys.exit(0)
             else:  # help
@@ -102,10 +101,9 @@ def full():
         print("\n\npublic key and IP must be provided.\n\n")
         sys.exit(1)
     else:
-        queue = Queue()
-        miner = Miner(public_key, queue)
         print("\n\nfull node starting...\n\n")
-        fullnode = FullNode(ip, public_key, queue)
+        fullnode = FullNode()
+        miner = Miner()
         mining = False
 
     while True:

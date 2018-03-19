@@ -125,6 +125,21 @@ class Transaction(object):
     def to_dict(self):
         return {key.lstrip('_'): value for key, value in self.__dict__.items()}
 
+    @classmethod
+    def from_dict(cls, transaction_dict):
+        return cls(
+                transaction_dict['source'],
+                transaction_dict['destination'],
+                transaction_dict['amount'],
+                transaction_dict['fee'],
+                tx_type=transaction_dict['tx_type'],
+                timestamp=transaction_dict['timestamp'],
+                asset=transaction_dict['asset'],
+                data=transaction_dict['data'],
+                prev_hash=transaction_dict['prev_hash'],
+                signature=transaction_dict['signature']
+        )
+
     def __repr__(self):
         return "<Transaction {}>".format(self._tx_hash)
 

@@ -9,4 +9,3 @@ with open("config/config.yaml", 'r') as ymlfile:
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-

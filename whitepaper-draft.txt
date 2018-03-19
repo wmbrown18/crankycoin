@@ -3,6 +3,9 @@ Design Motivations
 first generation single dimensional blockchain design
 Brewer's Theorem.  Transaction speed less important.  Durability + Security is priority
 Upload assets or asset hashes and allow it to be traded like first class citizens on the blockchain without relying on a state machine
+Simplicity first.  Simple contracts over smart contracts.  No state change per contract via transaction receipts.
+Horizontal scalability without sacrificing simplicity.
+Python. Optional C compiled modules for mining.  Multiprocessing with process safe db (sqlite) and messaging queue (zeromq)
 
 Attack Vectors
 ==============

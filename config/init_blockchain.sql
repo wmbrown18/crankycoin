@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS transactions(
     data TEXT NOT NULL,
     branch INTEGER DEFAULT 0,
     prevHash CHAR(32) NOT NULL,
+    blockIndex INTEGER NOT NULL,
     PRIMARY KEY (hash, branch),
     UNIQUE (prevHash, branch) ON CONFLICT ROLLBACK
 ) WITHOUT ROWID;

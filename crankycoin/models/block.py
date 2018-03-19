@@ -154,7 +154,7 @@ class Block(object):
         )
 
     def __repr__(self):
-        return "<Block {}>".format(self._height)
+        return "<Block {}>".format(self.block_header.hash)
 
     def __str__(self):
         return str(self.__dict__)
