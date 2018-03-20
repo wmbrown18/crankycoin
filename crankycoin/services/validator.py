@@ -1,5 +1,6 @@
 from crankycoin import logger
-from crankycoin.repository import Blockchain, Mempool
+from crankycoin.repository.blockchain import Blockchain
+from crankycoin.repository.mempool import Mempool
 from crankycoin.models.errors import InvalidHash, ChainContinuityError, InvalidTransactions, BlockchainException
 
 

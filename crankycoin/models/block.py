@@ -3,7 +3,8 @@ import json
 import time
 import pyscrypt
 
-from crankycoin.models import Transaction, InvalidTransactions
+from crankycoin.models.transaction import Transaction
+from crankycoin.models.errors import InvalidTransactions
 from crankycoin import config
 
 

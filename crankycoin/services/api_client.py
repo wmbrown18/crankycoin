@@ -2,7 +2,7 @@ import json
 import requests
 
 from crankycoin import config, logger
-from crankycoin.repository import Peers
+from crankycoin.repository.peers import Peers
 
 
 class ApiClient(object):
@@ -19,8 +19,8 @@ class ApiClient(object):
     DOWNTIME_THRESHOLD = config['network']['downtime_threshold']
     STATUS_URL = config['network']['status_url']
     CONNECT_URL = config['network']['connect_url']
-    MIN_PEERS = config['network']['min_peers']
-    MAX_PEERS = config['network']['max_peers']
+    MIN_PEERS = config['user']['min_peers']
+    MAX_PEERS = config['user']['max_peers']
 
     def __init__(self):
         self.peers = Peers()

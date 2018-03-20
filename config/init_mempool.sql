@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS unconfirmed_transactions(
     asset CHAR(32) NOT NULL,
     data TEXT NOT NULL,
     prevHash CHAR(32) NOT NULL,
-    PRIMARY KEY hash
+    PRIMARY KEY (hash)
 ) WITHOUT ROWID;
 
 CREATE INDEX idx_unconfirmed_transactions_fee ON unconfirmed_transactions(fee);

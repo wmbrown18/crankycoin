@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS blocks(
     timestamp INTEGER NOT NULL,
     version INTEGER NOT NULL,
     branch INTEGER DEFAULT 0,
-    PRIMARY KEY hash,
+    PRIMARY KEY (hash),
     UNIQUE (prevHash, branch) ON CONFLICT ROLLBACK
 ) WITHOUT ROWID;
 

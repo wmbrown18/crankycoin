@@ -29,24 +29,19 @@ class Peers(object):
         with sqlite3.connect(self.PEER_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
-            if len(cursor.fetchall()) == 0:
-                return 0
             count = cursor.fetchone()[0]
         return count
 
     def get_peer(self, host):
-        sql = 'SELECT * FROM peers WHERE host={}'.format(host)
+        sql = "SELECT * FROM peers WHERE host='{}'".format(host)
         with sqlite3.connect(self.PEER_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
-            if len(cursor.fetchall()) == 0:
-                return None
-            peer = cursor.fetchone()[0]
-        return peer[0], peer[1]
+        return cursor.fetchone()[0]
 
     def get_all_peers(self):
         peers = []
-        sql = 'SELECT host FROM peers ORDER BY downtime ASC LIMIT {}'.self.MAX_PEERS
+        sql = 'SELECT host FROM peers ORDER BY downtime ASC LIMIT {}'.format(self.MAX_PEERS)
         with sqlite3.connect(self.PEER_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
@@ -55,28 +50,28 @@ class Peers(object):
         return peers
 
     def remove_peer(self, host):
-        sql = 'DELETE FROM peers WHERE host={}'.format(host)
+        sql = "'DELETE FROM peers WHERE host='{}'".format(host)
         with sqlite3.connect(self.PEER_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             return cursor.rowcount
 
     def record_downtime(self, host):
-        sql = 'UPDATE peers SET downtime = downtime + 1 WHERE host={}'.format(host)
+        sql = "UPDATE peers SET downtime = downtime + 1 WHERE host='{}'".format(host)
         with sqlite3.connect(self.PEER_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             return cursor.rowcount
 
     def reset_downtime(self, host):
-        sql = 'UPDATE peers SET downtime = 0 WHERE host={}'.format(host)
+        sql = "UPDATE peers SET downtime = 0 WHERE host='{}'".format(host)
         with sqlite3.connect(self.PEER_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             return cursor.rowcount
 
     def add_peer(self, host):
-        sql = 'INSERT OR IGNORE INTO peers (host, downtime) VALUES ({}, 0)'.format(host)
+        sql = "INSERT OR IGNORE INTO peers (host, downtime) VALUES ('{}', 0)".format(host)
         with sqlite3.connect(self.PEER_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)

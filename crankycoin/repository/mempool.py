@@ -2,7 +2,7 @@ from multiprocessing import Lock
 import sqlite3
 
 from crankycoin import config
-from crankycoin.models import Transaction
+from crankycoin.models.transaction import Transaction
 
 
 class Mempool(object):
@@ -77,7 +77,7 @@ class Mempool(object):
         with sqlite3.connect(self.POOL_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
-        return
+            return cursor.rowcount
 
     def remove_unconfirmed_transactions(self, transactions):
         sql = 'DELETE FROM unconfirmed_transactions WHERE hash IN ({})'\
@@ -85,7 +85,7 @@ class Mempool(object):
         with sqlite3.connect(self.POOL_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
-        return
+            return cursor.rowcount
 
 
 class MempoolMemory(object):

@@ -4,7 +4,7 @@ import random
 
 from crankycoin import logger
 from crankycoin.node import NodeMixin
-from crankycoin.models import Transaction
+from crankycoin.models.transaction import Transaction
 
 
 class Client(NodeMixin):

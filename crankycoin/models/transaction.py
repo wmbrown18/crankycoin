@@ -9,7 +9,7 @@ class Transaction(object):
     def __init__(self, source, destination, amount, fee, prev_hash='0', tx_type=2, timestamp=None, tx_hash=None,
                  asset=None, data="", signature=None):
         """
-        tx_type: 0=genesis, 1=coinbase, 2=standard, 3=asset creation, 4=asset amendment
+        tx_type: 0=genesis, 1=coinbase, 2=standard, 3=asset creation, 4=asset addendum
         """
         self._source = source
         self._destination = destination

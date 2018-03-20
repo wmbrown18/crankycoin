@@ -2,9 +2,12 @@ import logging
 import multiprocessing as mp
 import time
 
-from crankycoin.models import Block, Transaction, MessageType
-from crankycoin.repository import Blockchain, Mempool
-from crankycoin.services import Queue
+from crankycoin.models.block import Block
+from crankycoin.models.transaction import Transaction
+from crankycoin.models.enums import MessageType
+from crankycoin.repository.blockchain import Blockchain
+from crankycoin.repository.mempool import Mempool
+from crankycoin.services.queue import Queue
 from crankycoin import config, logger
 
 

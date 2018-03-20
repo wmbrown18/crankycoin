@@ -3,7 +3,8 @@ from multiprocessing import Lock
 import sqlite3
 
 from crankycoin import config, logger
-from crankycoin.models import BlockHeader, Transaction
+from crankycoin.models.block import BlockHeader
+from crankycoin.models.transaction import Transaction
 
 
 class Blockchain(object):
@@ -33,23 +34,6 @@ class Blockchain(object):
             cursor.executescript(sql)
         return
 
-    # def alter_chain(self, blocks):
-    #     # TODO: Deprecate?
-    #     fork_start = blocks[0].height
-    #     alternate_blocks = self.blocks[0:fork_start]
-    #     alternate_blocks.extend(blocks)
-    #     alternate_chain = Blockchain(alternate_blocks)
-    #
-    #     status = False
-    #     if alternate_chain.get_height() > self.get_height():
-    #         self.blocks_lock.acquire()
-    #         try:
-    #             self.blocks = alternate_blocks
-    #             status = True
-    #         finally:
-    #             self.blocks_lock.release()
-    #     return status
-
     def add_block(self, block):
         status = False
         branch = self.get_branch_by_hash(block.block_header.previous_hash)
@@ -68,9 +52,10 @@ class Blockchain(object):
 
         sql_strings = list()
         sql_strings.append('INSERT INTO blocks (hash, prevhash, merkleRoot, height, nonce, timestamp, version, branch)\
-            VALUES ({}, {}, {}, {}, {}, {}, {}, {})'.format(block.block_header.hash, block.block_header.previous_hash,
-                block.block_header.merkle_root, block.height, block.block_header.nonce, block.block_header.timestamp,
-                block.block_header.version, branch))
+                            VALUES ({}, {}, {}, {}, {}, {}, {}, {})'
+                           .format(block.block_header.hash, block.block_header.previous_hash,
+                                   block.block_header.merkle_root, block.height, block.block_header.nonce,
+                                   block.block_header.timestamp, block.block_header.version, branch))
         for idx, transaction in enumerate(block.transactions):
             sql_strings.append('INSERT INTO transactions (hash, src, dest, amount, fee, timestamp, signature, type,\
                 blockHash, asset, data, branch, prevHash, blockIndex) VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {},\

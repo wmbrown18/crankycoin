@@ -1,12 +1,18 @@
-import json
 import logging
 import multiprocessing as mp
 from bottle import Bottle
 
-from crankycoin.repository import Blockchain, Mempool, Peers
-from crankycoin.models import Block, BlockHeader, Transaction, MessageType
-from crankycoin.services import Validator, Queue, ApiClient
-from crankycoin.routes import permissioned_app, public_app
+from crankycoin.repository.blockchain import Blockchain
+from crankycoin.repository.mempool import Mempool
+from crankycoin.repository.peers import Peers
+from crankycoin.models.block import Block
+from crankycoin.models.transaction import Transaction
+from crankycoin.models.enums import MessageType
+from crankycoin.services.validator import Validator
+from crankycoin.services.queue import Queue
+from crankycoin.services.api_client import ApiClient
+from crankycoin.routes.permissioned import permissioned_app
+from crankycoin.routes.public import public_app
 from crankycoin import config, logger
 
 
@@ -24,8 +30,8 @@ class NodeMixin(object):
     DOWNTIME_THRESHOLD = config['network']['downtime_threshold']
     STATUS_URL = config['network']['status_url']
     CONNECT_URL = config['network']['connect_url']
-    MIN_PEERS = config['network']['min_peers']
-    MAX_PEERS = config['network']['max_peers']
+    MIN_PEERS = config['user']['min_peers']
+    MAX_PEERS = config['user']['max_peers']
 
     def __init__(self):
         self.peers = Peers()
@@ -33,7 +39,7 @@ class NodeMixin(object):
 
     def find_known_peers(self):
         peers = self.peers.get_all_peers()
-        known_peers = peers.copy()
+        known_peers = list(peers)
         for peer in peers:
             nodes = self.api_client.request_nodes(peer, self.FULL_NODE_PORT)
             if nodes is not None:
