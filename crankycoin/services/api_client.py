@@ -3,6 +3,8 @@ import requests
 
 from crankycoin import config, logger
 from crankycoin.repository.peers import Peers
+from crankycoin.models.transaction import Transaction
+from crankycoin.models.block import BlockHeader
 
 
 class ApiClient(object):
@@ -32,7 +34,7 @@ class ApiClient(object):
         try:
             response = requests.get(url)
             if response.status_code == 200:
-                all_nodes = json.loads(response.json())
+                all_nodes = response.json()
                 return all_nodes
         except requests.exceptions.RequestException as re:
             self.peers.record_downtime(node)
@@ -44,7 +46,7 @@ class ApiClient(object):
         try:
             response = requests.get(url)
             if response.status_code == 200:
-                status_dict = json.loads(response.json())
+                status_dict = response.json()
                 return status_dict == config['network']
         except requests.exceptions.RequestException as re:
             pass
@@ -52,7 +54,6 @@ class ApiClient(object):
 
     def broadcast_transaction(self, transaction):
         # Used only when broadcasting a transaction that originated locally
-        self.check_peers_light()
         data = {
             "transaction": transaction.to_dict()
         }
@@ -76,7 +77,7 @@ class ApiClient(object):
                 status_url = self.STATUS_URL.format(peer, self.FULL_NODE_PORT)
                 try:
                     response = requests.get(status_url)
-                    if response.status_code == 200 and json.loads(response.json()) == config['network']:
+                    if response.status_code == 200 and response.json() == config['network']:
                         self.peers.add_peer(peer)
                 except requests.exceptions.RequestException as re:
                     pass
@@ -98,10 +99,10 @@ class ApiClient(object):
                 connect_url = self.CONNECT_URL.format(peer, self.FULL_NODE_PORT)
                 try:
                     response = requests.get(status_url)
-                    if response.status_code != 200 or json.loads(response.json()) != config['network']:
+                    if response.status_code != 200 or response.json() != config['network']:
                         continue
                     response = requests.post(connect_url, json=host_data)
-                    if response.status_code == 202 and json.loads(response.json()).get("success") is True:
+                    if response.status_code == 202 and response.json().get("success") is True:
                         self.peers.add_peer(peer)
                 except requests.exceptions.RequestException as re:
                     pass
@@ -139,7 +140,7 @@ class ApiClient(object):
         try:
             response = requests.get(url)
             if response.status_code == 200:
-                block_dict = json.loads(response.json())
+                block_dict = response.json()
                 block_header = BlockHeader(
                     block_dict['previous_hash'],
                     block_dict['merkle_root'],
@@ -157,7 +158,7 @@ class ApiClient(object):
         try:
             response = requests.get(url)
             if response.status_code == 200:
-                tx_dict = json.loads(response.json())
+                tx_dict = response.json()
                 transaction = Transaction(
                     tx_dict['source'],
                     tx_dict['destination'],
@@ -188,7 +189,7 @@ class ApiClient(object):
         try:
             response = requests.get(url)
             if response.status_code == 200:
-                tx_dict = json.loads(response.json())
+                tx_dict = response.json()
                 return tx_dict['tx_hashes']
         except requests.exceptions.RequestException as re:
             logger.warn("Request Exception with host: {}".format(node))
@@ -201,7 +202,7 @@ class ApiClient(object):
         try:
             response = requests.get(url)
             if response.status_code == 200:
-                block_dict = json.loads(response.json())
+                block_dict = response.json()
                 return block_dict['block_hashes']
         except requests.exceptions.RequestException as re:
             logger.warn("Request Exception with host: {}".format(node))

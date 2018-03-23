@@ -39,12 +39,12 @@ class NodeMixin(object):
 
     def find_known_peers(self):
         peers = self.peers.get_all_peers()
-        known_peers = list(peers)
+        known_peers = set(peers)
         for peer in peers:
             nodes = self.api_client.request_nodes(peer, self.FULL_NODE_PORT)
             if nodes is not None:
                 known_peers = known_peers.union(nodes["full_nodes"])
-        return known_peers
+        return list(known_peers)
 
     def check_peers(self):
         raise NotImplementedError
@@ -81,9 +81,9 @@ class FullNode(NodeMixin):
         for wp in self.worker_processes:
             wp.start()
         logger.debug("full node server starting on %s...", self.HOST)
-        self.bottle_process = mp.Process(target=self.app.run, kwargs=dict(host=self.HOST, port=self.FULL_NODE_PORT))
+        self.bottle_process = mp.Process(target=self.app.run, kwargs=dict(host="0.0.0.0", port=self.FULL_NODE_PORT, debug=True))
         self.bottle_process.start()
-        self.check_peers()
+        # self.check_peers()
 
     def shutdown(self):
         logger.debug("full node on %s shutting down...", self.HOST)
@@ -110,8 +110,9 @@ class FullNode(NodeMixin):
                 if sender == self.HOST:
                     self.api_client.broadcast_block_header(block_header)
                 else:
-                    # TODO: Block was mined by a peer.  Validate
+                    # TODO: Block was mined by a (1st degree) peer.  Validate header
                     if valid:
+                        # TODO: request transactions inv and missing transactions and add block
                         self.api_client.broadcast_block_inv([block_header.hash])
                 continue
             elif msg_type == MessageType.UNCONFIRMED_TRANSACTION:

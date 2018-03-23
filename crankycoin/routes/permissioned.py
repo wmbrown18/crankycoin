@@ -1,8 +1,7 @@
 import json
-from bottle import Bottle, response, request
+from bottle import Bottle, response, request, abort
 
 from crankycoin.services.queue import Queue
-from crankycoin.services.api_client import ApiClient
 from crankycoin.models.enums import MessageType
 from crankycoin.repository.peers import Peers
 from crankycoin.repository.blockchain import Blockchain
@@ -10,23 +9,24 @@ from crankycoin.repository.blockchain import Blockchain
 permissioned_app = Bottle()
 
 
-@permissioned_app.route('/connect/', method='POST')
-def connect():
-    api_client = ApiClient()
+def valid_ip():
     peers = Peers()
-    body = request.json
-    host = body['host']
-    if api_client.ping_status(host):
-        peers.add_peer(host)
-        response.status = 200
-        return json.dumps({'success': True})
-    return json.dumps({'success': False})
+    host = request.environ.get('HTTP_X_FORWARDED_FOR') or request.environ.get('REMOTE_ADDR')
+    peer = peers.get_peer(host)
+    return True if peer else False
+
+
+def requires_whitelist(func):
+    def wrapper(*a, **ka):
+        if not valid_ip():
+            abort(401, {'code': 'token_expired', 'description': 'token is expired'})
+        return func(*a, **ka)
+    return wrapper
 
 
 @permissioned_app.route('/inbox/', method='POST')
+@requires_whitelist
 def post_to_inbox():
-    # TODO: grab sender's IP
-    # gets their IP but I'd rather have a non-spoofable method like passing in a header with your signed IP
     body = request.json
     host = request.environ.get('HTTP_X_FORWARDED_FOR') or request.environ.get('REMOTE_ADDR')
     msg_type = body.get('type')
@@ -40,6 +40,7 @@ def post_to_inbox():
 
 
 @permissioned_app.route('/blocks/start/<start_block_height:int>/end/<end_block_height:int>')
+@requires_whitelist
 def get_blocks_inv(start_block_height, end_block_height):
     blockchain = Blockchain()
     if end_block_height - start_block_height > 500:
@@ -52,6 +53,7 @@ def get_blocks_inv(start_block_height, end_block_height):
 
 
 @permissioned_app.route('/transactions/block_hash/<block_hash>')
+@requires_whitelist
 def get_transactions_index(block_hash):
     blockchain = Blockchain()
     transaction_inv = blockchain.get_transaction_hashes_by_block_hash(block_hash)
@@ -62,6 +64,7 @@ def get_transactions_index(block_hash):
 
 
 @permissioned_app.route('/blocks/hash/<block_hash>')
+@requires_whitelist
 def get_block_header_by_hash(block_hash):
     blockchain = Blockchain()
     block_header = blockchain.get_block_header_by_hash(block_hash)
@@ -72,6 +75,7 @@ def get_block_header_by_hash(block_hash):
 
 
 @permissioned_app.route('/blocks/height/<height:int>')
+@requires_whitelist
 def get_block_header_by_height(height):
     blockchain = Blockchain()
     if height == "latest":

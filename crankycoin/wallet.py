@@ -53,6 +53,7 @@ class Client(NodeMixin):
         return self.api_client.get_transaction_history(address, node)
 
     def create_transaction(self, to, amount, fee, prev_hash):
+        self.check_peers()
         transaction = Transaction(
             self.get_public_key(),
             to,

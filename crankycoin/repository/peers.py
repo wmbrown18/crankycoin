@@ -37,7 +37,8 @@ class Peers(object):
         with sqlite3.connect(self.PEER_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
-        return cursor.fetchone()[0]
+            peer = cursor.fetchone()
+        return peer if peer is None else peer[0]
 
     def get_all_peers(self):
         peers = []

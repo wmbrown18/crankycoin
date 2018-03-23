@@ -102,7 +102,7 @@ def full():
         sys.exit(1)
     else:
         print("\n\nfull node starting...\n\n")
-        fullnode = FullNode()
+        fullnode = FullNode().start()
         miner = Miner()
         mining = False
 

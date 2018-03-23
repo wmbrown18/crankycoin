@@ -1,7 +1,8 @@
 import json
-from bottle import Bottle, response, abort, request
+from bottle import Bottle, response, request
 
 from crankycoin import logger, config
+from crankycoin.services.api_client import ApiClient
 from crankycoin.services.validator import Validator
 from crankycoin.models.transaction import Transaction
 from crankycoin.repository.peers import Peers
@@ -9,6 +10,20 @@ from crankycoin.repository.mempool import Mempool
 from crankycoin.repository.blockchain import Blockchain
 
 public_app = Bottle()
+
+
+@public_app.route('/connect/', method='POST')
+def connect():
+    peers = Peers()
+    if peers.get_peers_count() < peers.MAX_PEERS:
+        api_client = ApiClient()
+        body = request.json
+        host = body['host']
+        if api_client.ping_status(host):
+            peers.add_peer(host)
+            response.status = 200
+            return json.dumps({'success': True})
+    return json.dumps({'success': False})
 
 
 @public_app.route('/status/')

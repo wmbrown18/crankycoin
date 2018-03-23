@@ -46,7 +46,10 @@ class Mempool(object):
         with sqlite3.connect(self.POOL_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
-            transaction = cursor.fetchone()[0]
+            data = cursor.fetchone()
+        if data is None:
+            return None
+        transaction = data[0]
         return Transaction(transaction[1], transaction[2], transaction[3], transaction[4], transaction[10],
                            transaction[7], transaction[5], transaction[0], transaction[8], transaction[9],
                            transaction[6])
