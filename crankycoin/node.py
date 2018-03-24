@@ -83,7 +83,7 @@ class FullNode(NodeMixin):
         logger.debug("full node server starting on %s...", self.HOST)
         self.bottle_process = mp.Process(target=self.app.run, kwargs=dict(host="0.0.0.0", port=self.FULL_NODE_PORT, debug=True))
         self.bottle_process.start()
-        # self.check_peers()
+        self.check_peers()
 
     def shutdown(self):
         logger.debug("full node on %s shutting down...", self.HOST)

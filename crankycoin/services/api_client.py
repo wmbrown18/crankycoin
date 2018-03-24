@@ -86,7 +86,8 @@ class ApiClient(object):
     def check_peers_full(self, host, known_peers):
         if self.peers.get_peers_count() < self.MIN_PEERS:
             host_data = {
-                "host": host
+                "host": host,
+                "network": config['network']
             }
 
             for peer in known_peers:
@@ -99,13 +100,24 @@ class ApiClient(object):
                 connect_url = self.CONNECT_URL.format(peer, self.FULL_NODE_PORT)
                 try:
                     response = requests.get(status_url)
-                    if response.status_code != 200 or response.json() != config['network']:
+                    if response.status_code != 200:  # Downtime or error
+                        if self.peers.get_peer(peer):
+                            self.peers.record_downtime(peer)
+                            logger.warn("Downtime recorded for node %s", peer)
                         continue
-                    response = requests.post(connect_url, json=host_data)
-                    if response.status_code == 202 and response.json().get("success") is True:
-                        self.peers.add_peer(peer)
+                    if response.json() != config['network']:  # Incompatible network
+                        if self.peers.get_peer(peer):
+                            self.peers.remove_peer(peer)
+                        logger.warn("Incompatible network with node %s", peer)
+                        continue
+                    if self.peers.get_peer(peer) is None:
+                        response = requests.post(connect_url, json=host_data)
+                        if response.status_code == 202 and response.json().get("success") is True:
+                            self.peers.add_peer(peer)
                 except requests.exceptions.RequestException as re:
-                    pass
+                    logger.warn("Request exception while attempting to reach %s", peer)
+                    if self.peers.get_peer(peer):
+                        self.peers.record_downtime(peer)
         return
 
     # Light Client

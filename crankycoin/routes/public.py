@@ -19,10 +19,12 @@ def connect():
         api_client = ApiClient()
         body = request.json
         host = body['host']
-        if api_client.ping_status(host):
+        network = body['network']
+        if network == config['network'] and api_client.ping_status(host):
             peers.add_peer(host)
-            response.status = 200
+            response.status = 202
             return json.dumps({'success': True})
+    response.status = 403
     return json.dumps({'success': False})
 
 

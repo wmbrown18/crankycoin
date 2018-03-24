@@ -42,7 +42,7 @@ class Mempool(object):
         return count
 
     def get_unconfirmed_transaction(self, tx_hash):
-        sql = 'SELECT * FROM unconfirmed_transactions WHERE hash={}'.format(tx_hash)
+        sql = "SELECT * FROM unconfirmed_transactions WHERE hash='{}'".format(tx_hash)
         with sqlite3.connect(self.POOL_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
@@ -65,8 +65,8 @@ class Mempool(object):
                                   transaction[6])
 
     def push_unconfirmed_transaction(self, transaction):
-        sql = 'INSERT INTO unconfirmed_transactions (hash, src, dest, amount, fee, timestamp, signature, type, asset,'\
-              ' data, prevHash) VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})'.format(transaction.tx_hash,
+        sql = "INSERT INTO unconfirmed_transactions (hash, src, dest, amount, fee, timestamp, signature, type, asset,"\
+              " data, prevHash) VALUES ('{}', '{}', '{}', {}, {}, {}, '{}', {}, '{}', '{}', '{}')".format(transaction.tx_hash,
                     transaction.source, transaction.destination, transaction.amount, transaction.fee,
                     transaction.timestamp, transaction.signature, transaction.tx_type, transaction.asset,
                     transaction.data, transaction.prev_hash)
@@ -76,15 +76,15 @@ class Mempool(object):
             return cursor.lastrowid
 
     def remove_unconfirmed_transaction(self, tx_hash):
-        sql = 'DELETE FROM unconfirmed_transactions WHERE hash={}'.format(tx_hash)
+        sql = "DELETE FROM unconfirmed_transactions WHERE hash='{}'".format(tx_hash)
         with sqlite3.connect(self.POOL_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
             return cursor.rowcount
 
     def remove_unconfirmed_transactions(self, transactions):
-        sql = 'DELETE FROM unconfirmed_transactions WHERE hash IN ({})'\
-            .format([transaction.tx_hash for transaction in transactions])
+        sql = "DELETE FROM unconfirmed_transactions WHERE hash IN ({})"\
+            .format(["'" + transaction.tx_hash + "'" for transaction in transactions])
         with sqlite3.connect(self.POOL_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)

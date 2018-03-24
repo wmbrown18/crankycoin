@@ -51,20 +51,20 @@ class Blockchain(object):
                 branch = self.get_new_branch_number(block.block_header.hash, block.height)
 
         sql_strings = list()
-        sql_strings.append('INSERT INTO blocks (hash, prevhash, merkleRoot, height, nonce, timestamp, version, branch)\
-                            VALUES ({}, {}, {}, {}, {}, {}, {}, {})'
+        sql_strings.append("INSERT INTO blocks (hash, prevhash, merkleRoot, height, nonce, timestamp, version, branch)\
+                            VALUES ('{}', '{}', '{}', {}, {}, {}, {}, {})"
                            .format(block.block_header.hash, block.block_header.previous_hash,
                                    block.block_header.merkle_root, block.height, block.block_header.nonce,
                                    block.block_header.timestamp, block.block_header.version, branch))
         for idx, transaction in enumerate(block.transactions):
-            sql_strings.append('INSERT INTO transactions (hash, src, dest, amount, fee, timestamp, signature, type,\
-                blockHash, asset, data, branch, prevHash, blockIndex) VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {},\
-                {}, {}, {}, {})'.format(
+            sql_strings.append("INSERT INTO transactions (hash, src, dest, amount, fee, timestamp, signature, type,\
+                blockHash, asset, data, branch, prevHash, blockIndex) VALUES ('{}', '{}', '{}', {}, {}, {}, '{}', {},\
+                '{}', '{}', '{}', {}, '{}', {})".format(
                     transaction.tx_hash, transaction.source, transaction.destination, transaction.amount,
                     transaction.fee, transaction.timestamp, transaction.signature, transaction.tx_type,
                     block.block_header.hash, transaction.asset, transaction.data, branch, transaction.prev_hash,
                     idx))
-        sql_strings.append('UPDATE branches SET currentHash = {}, currentHeight = {} WHERE id = {}'
+        sql_strings.append("UPDATE branches SET currentHash = '{}', currentHeight = {} WHERE id = {}"
                            .format(block.block_header.hash, block.height, branch))
 
         try:
@@ -78,7 +78,7 @@ class Blockchain(object):
         return status
 
     def get_new_branch_number(self, block_hash, height):
-        sql = 'INSERT INTO branches (currentHash, currentHeight) VALUES ({}, {})'.format(block_hash, height)
+        sql = "INSERT INTO branches (currentHash, currentHeight) VALUES ('{}', {})".format(block_hash, height)
         with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
@@ -129,7 +129,7 @@ class Blockchain(object):
     def get_transaction_history(self, address, branch=0):
         # TODO: convert this to return a generator
         transactions = []
-        sql = 'SELECT * FROM transactions WHERE (src={} OR dest={}) AND branch={}'.format(address, address, branch)
+        sql = "SELECT * FROM transactions WHERE (src='{}' OR dest='{}') AND branch={}".format(address, address, branch)
         with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
@@ -142,7 +142,7 @@ class Blockchain(object):
 
     def get_transactions_by_block_hash(self, block_hash):
         transactions = []
-        sql = 'SELECT * FROM transactions WHERE blockHash={} ORDER BY blockIndex ASC'.format(block_hash)
+        sql = "SELECT * FROM transactions WHERE blockHash='{}' ORDER BY blockIndex ASC".format(block_hash)
         with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
@@ -154,7 +154,7 @@ class Blockchain(object):
         return transactions
 
     def get_transaction_hashes_by_block_hash(self, block_hash):
-        sql = 'SELECT hash FROM transactions WHERE blockHash={} ORDER BY blockIndex ASC'.format(block_hash)
+        sql = "SELECT hash FROM transactions WHERE blockHash='{}' ORDER BY blockIndex ASC".format(block_hash)
         with sqlite3.connect(self.CHAIN_DB) as conn:
             conn.row_factory = lambda cursor, row: row[0]
             cursor = conn.cursor()
@@ -162,7 +162,7 @@ class Blockchain(object):
         return hashes
 
     def get_transaction_by_hash(self, transaction_hash, branch=0):
-        sql = 'SELECT * FROM transactions WHERE hash={} AND branch={}'.format(transaction_hash, branch)
+        sql = "SELECT * FROM transactions WHERE hash='{}' AND branch={}".format(transaction_hash, branch)
         with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
@@ -175,8 +175,8 @@ class Blockchain(object):
         if asset is None:
             asset = '29bb7eb4fa78fc709e1b8b88362b7f8cb61d9379667ad4aedc8ec9f664e16680'
         balance = 0
-        sql = 'SELECT src, dest, amount, fee FROM transactions WHERE (src={} OR dest={}) AND asset={} AND branch={} \
-            AND type < 3'.format(address, address, asset, branch)
+        sql = "SELECT src, dest, amount, fee FROM transactions WHERE (src='{}' OR dest='{}') AND asset='{}' " \
+              "AND branch={}".format(address, address, asset, branch)
         with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
@@ -188,7 +188,7 @@ class Blockchain(object):
         return balance
 
     def find_duplicate_transactions(self, transaction_hash):
-        sql = 'SELECT COUNT(*) FROM transactions WHERE hash={}'.format(transaction_hash)
+        sql = "SELECT COUNT(*) FROM transactions WHERE hash='{}'".format(transaction_hash)
         with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
@@ -234,7 +234,7 @@ class Blockchain(object):
         return height
 
     def get_branch_by_hash(self, block_hash):
-        sql = 'SELECT branch FROM blocks WHERE hash={}'.format(block_hash)
+        sql = "SELECT branch FROM blocks WHERE hash='{}'".format(block_hash)
         with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
@@ -263,7 +263,7 @@ class Blockchain(object):
 
     def get_block_header_by_hash(self, block_hash):
         # returns tuple of BlockHeader, branch, height
-        sql = 'SELECT * FROM blocks WHERE hash={}'.format(block_hash)
+        sql = "SELECT * FROM blocks WHERE hash='{}'".format(block_hash)
         with sqlite3.connect(self.CHAIN_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)
@@ -272,7 +272,7 @@ class Blockchain(object):
 
     def get_branches_by_prevhash(self, prev_hash):
         # returns list of branches
-        sql = 'SELECT branch FROM blocks WHERE prevHash={} ORDER BY branch'.format(prev_hash)
+        sql = "SELECT branch FROM blocks WHERE prevHash='{}' ORDER BY branch".format(prev_hash)
         with sqlite3.connect(self.CHAIN_DB) as conn:
             conn.row_factory = lambda cursor, row: row[0]
             cursor = conn.cursor()
