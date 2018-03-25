@@ -16,7 +16,7 @@ public_app = Bottle()
 def connect():
     peers = Peers()
     if peers.get_peers_count() < peers.MAX_PEERS:
-        api_client = ApiClient()
+        api_client = ApiClient(peers)
         body = request.json
         host = body['host']
         network = body['network']

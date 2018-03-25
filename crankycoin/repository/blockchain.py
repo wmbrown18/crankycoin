@@ -282,7 +282,7 @@ class Blockchain(object):
     def get_open_branches(self, tolerance):
         # returns list of tuples of branches, hash, height
         branches = []
-        #sql = 'SELECT DISTINCT branch\ FROM blocks\
+        # sql = 'SELECT DISTINCT branch\ FROM blocks\
         #    WHERE height >= (SELECT MAX(height) FROM blocks) - {} GROUP BY branch ORDER BY branch'.format(tolerance)
         sql = 'SELECT * FROM branches WHERE currentHeight >= (SELECT MAX(height) FROM blocks) - {} ORDER BY id'\
             .format(tolerance)

@@ -66,10 +66,10 @@ class Mempool(object):
 
     def push_unconfirmed_transaction(self, transaction):
         sql = "INSERT INTO unconfirmed_transactions (hash, src, dest, amount, fee, timestamp, signature, type, asset,"\
-              " data, prevHash) VALUES ('{}', '{}', '{}', {}, {}, {}, '{}', {}, '{}', '{}', '{}')".format(transaction.tx_hash,
-                    transaction.source, transaction.destination, transaction.amount, transaction.fee,
-                    transaction.timestamp, transaction.signature, transaction.tx_type, transaction.asset,
-                    transaction.data, transaction.prev_hash)
+              " data, prevHash) VALUES ('{}', '{}', '{}', {}, {}, {}, '{}', {}, '{}', '{}', '{}')"\
+                .format(transaction.tx_hash, transaction.source, transaction.destination, transaction.amount,
+                        transaction.fee, transaction.timestamp, transaction.signature, transaction.tx_type,
+                        transaction.asset, transaction.data, transaction.prev_hash)
         with sqlite3.connect(self.POOL_DB) as conn:
             cursor = conn.cursor()
             cursor.execute(sql)

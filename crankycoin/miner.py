@@ -5,8 +5,6 @@ import time
 from crankycoin.models.block import Block
 from crankycoin.models.transaction import Transaction
 from crankycoin.models.enums import MessageType
-from crankycoin.repository.blockchain import Blockchain
-from crankycoin.repository.mempool import Mempool
 from crankycoin.services.queue import Queue
 from crankycoin import config, logger
 
@@ -18,12 +16,12 @@ class Miner(object):
     MAX_TRANSACTIONS_PER_BLOCK = config['network']['max_transactions_per_block']
     miner_process = None
 
-    def __init__(self):
+    def __init__(self, blockchain, mempool):
         mp.log_to_stderr()
         mp_logger = mp.get_logger()
         mp_logger.setLevel(logging.DEBUG)
-        self.blockchain = Blockchain()
-        self.mempool = Mempool()
+        self.blockchain = blockchain
+        self.mempool = mempool
 
     def start(self):
         logger.debug("mining process starting with reward address %s...", self.REWARD_ADDRESS)
@@ -48,20 +46,22 @@ class Miner(object):
 
     def mine_block(self):
         latest_block = self.blockchain.get_tallest_block_header()
-        new_block_id = latest_block.index + 1
-        previous_hash = latest_block.current_hash
+        latest_block_header = latest_block[0]
+        latest_block_height = latest_block[2]
+        new_block_height = latest_block_height + 1
+        previous_hash = latest_block_header.current_hash
 
         transactions = self.mempool.get_unconfirmed_transactions_chunk(self.MAX_TRANSACTIONS_PER_BLOCK)
-        if len(transactions) > 0:
-            fees = sum(t.fee for t in transactions)
-        else:
+        if transactions is None or len(transactions) == 0:
             fees = 0
+        else:
+            fees = sum(t.fee for t in transactions)
 
         # coinbase
         coinbase = Transaction(
             "0",
             self.REWARD_ADDRESS,
-            self.blockchain.get_reward(new_block_id) + fees,
+            self.blockchain.get_reward(new_block_height) + fees,
             0,
             "0"
         )
@@ -69,11 +69,13 @@ class Miner(object):
 
         timestamp = int(time.time())
         i = 0
-        block = Block(new_block_id, transactions, previous_hash, timestamp)
+        block = Block(new_block_height, transactions, previous_hash, timestamp)
 
         while block.block_header.hash_difficulty < self.blockchain.calculate_hash_difficulty():
             latest_block = self.blockchain.get_tallest_block_header()
-            if latest_block.index >= new_block_id or latest_block.current_hash != previous_hash:
+            latest_block_header = latest_block[0]
+            latest_block_height = latest_block[2]
+            if latest_block_height >= new_block_height or latest_block_header.current_hash != previous_hash:
                 # Next block in sequence was mined by another node.  Stop mining current block.
                 return None
             i += 1

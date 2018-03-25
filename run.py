@@ -6,12 +6,18 @@ import argparse
 import hashlib
 import requests
 import sys
+import time
 from getpass import getpass
 from Cryptodome.Cipher import AES
 from crankycoin import config, logger
 from crankycoin.node import FullNode
 from crankycoin.wallet import Client
 from crankycoin.miner import Miner
+from crankycoin.repository.blockchain import Blockchain
+from crankycoin.repository.mempool import Mempool
+from crankycoin.repository.peers import Peers
+from crankycoin.services.validator import Validator
+from crankycoin.services.api_client import ApiClient
 
 _PY3 = sys.version_info[0] > 2
 if _PY3:
@@ -29,10 +35,12 @@ def client():
         history <public key (optional)>
         quit or exit
     '''
+    peers = Peers()
+    api_client = ApiClient(peers)
     encrypted = config['user']['encrypted_private_key']
     if encrypted is None:
         print("\n\nNo private key provided. A new wallet will be generated for you...\n\n")
-        wallet = Client()
+        wallet = Client(peers, api_client)
     else:
         passphrase = getpass("Enter passphrase: ")
         encrypted = encrypted.decode('hex')
@@ -43,7 +51,7 @@ def client():
         cipher = AES.new(hashedpass, AES.MODE_EAX, nonce)
         try:
             private_key = cipher.decrypt_and_verify(ciphertext, tag)
-            wallet = Client(private_key)
+            wallet = Client(peers, api_client, private_key)
         except ValueError as ve:
             logger.warn('Invalid passphrase')
             print("\n\nInvalid passphrase\n\n")
@@ -95,6 +103,11 @@ def full():
         mine <start | stop>
         quit or exit
     '''
+    peers = Peers()
+    api_client = ApiClient(peers)
+    blockchain = Blockchain()
+    mempool = Mempool()
+    validator = Validator()
     ip = config['user']['ip']
     public_key = config['user']['public_key']
     if ip is None or public_key is None:
@@ -102,8 +115,8 @@ def full():
         sys.exit(1)
     else:
         print("\n\nfull node starting...\n\n")
-        fullnode = FullNode().start()
-        miner = Miner()
+        fullnode = FullNode(peers, api_client, blockchain, mempool, validator).start()
+        miner = Miner(blockchain, mempool)
         mining = False
 
     while True:
@@ -177,6 +190,7 @@ def full():
                     print("\n\nminer shutting down...\n\n")
                     miner.shutdown()
                 fullnode.shutdown()
+                time.sleep(3)
                 sys.exit(0)
             else:  # help
                 print(helptext)

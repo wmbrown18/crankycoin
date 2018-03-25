@@ -2,7 +2,6 @@ import json
 import requests
 
 from crankycoin import config, logger
-from crankycoin.repository.peers import Peers
 from crankycoin.models.transaction import Transaction
 from crankycoin.models.block import BlockHeader
 
@@ -24,8 +23,8 @@ class ApiClient(object):
     MIN_PEERS = config['user']['min_peers']
     MAX_PEERS = config['user']['max_peers']
 
-    def __init__(self):
-        self.peers = Peers()
+    def __init__(self, peers):
+        self.peers = peers
 
     # Common
 

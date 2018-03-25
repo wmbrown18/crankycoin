@@ -12,14 +12,14 @@ class Client(NodeMixin):
     __private_key__ = None
     __public_key__ = None
 
-    def __init__(self, private_key=None):
+    def __init__(self, peers, api_client, private_key=None):
         if private_key is not None:
             self.__private_key__ = coincurve.PrivateKey.from_hex(private_key)
         else:
             logger.info("No private key provided. Generating new key pair.")
             self.__private_key__ = coincurve.PrivateKey()
         self.__public_key__ = self.__private_key__.public_key
-        super(Client, self).__init__()
+        super(Client, self).__init__(peers, api_client)
         self.check_peers()
 
     def get_public_key(self):
@@ -40,7 +40,7 @@ class Client(NodeMixin):
         if address is None:
             address = self.get_public_key()
         if node is None:
-            peers = self.find_known_peers()
+            peers = self.discover_peers()
             node = random.sample(peers, 1)[0]
         return self.api_client.get_balance(address, node)
 
@@ -48,7 +48,7 @@ class Client(NodeMixin):
         if address is None:
             address = self.get_public_key()
         if node is None:
-            peers = self.find_known_peers()
+            peers = self.discover_peers()
             node = random.sample(peers, 1)[0]
         return self.api_client.get_transaction_history(address, node)
 
@@ -65,7 +65,7 @@ class Client(NodeMixin):
         return self.api_client.broadcast_transaction(transaction)
 
     def check_peers(self):
-        known_peers = self.find_known_peers()
+        known_peers = self.discover_peers()
         self.api_client.check_peers_light(known_peers)
         return
 

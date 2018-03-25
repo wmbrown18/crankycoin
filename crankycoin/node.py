@@ -2,15 +2,10 @@ import logging
 import multiprocessing as mp
 from bottle import Bottle
 
-from crankycoin.repository.blockchain import Blockchain
-from crankycoin.repository.mempool import Mempool
-from crankycoin.repository.peers import Peers
 from crankycoin.models.block import Block
 from crankycoin.models.transaction import Transaction
 from crankycoin.models.enums import MessageType
-from crankycoin.services.validator import Validator
 from crankycoin.services.queue import Queue
-from crankycoin.services.api_client import ApiClient
 from crankycoin.routes.permissioned import permissioned_app
 from crankycoin.routes.public import public_app
 from crankycoin import config, logger
@@ -33,18 +28,18 @@ class NodeMixin(object):
     MIN_PEERS = config['user']['min_peers']
     MAX_PEERS = config['user']['max_peers']
 
-    def __init__(self):
-        self.peers = Peers()
-        self.api_client = ApiClient()
+    def __init__(self, peers, api_client):
+        self.peers = peers
+        self.api_client = api_client
 
-    def find_known_peers(self):
+    def discover_peers(self):
         peers = self.peers.get_all_peers()
-        known_peers = set(peers)
+        discovered_peers = set(peers)
         for peer in peers:
             nodes = self.api_client.request_nodes(peer, self.FULL_NODE_PORT)
             if nodes is not None:
-                known_peers = known_peers.union(nodes["full_nodes"])
-        return list(known_peers)
+                discovered_peers = discovered_peers.union(nodes["full_nodes"])
+        return list(discovered_peers)
 
     def check_peers(self):
         raise NotImplementedError
@@ -60,17 +55,17 @@ class FullNode(NodeMixin):
     queue_process = None
     worker_processes = None
 
-    def __init__(self):
-        super(FullNode, self).__init__()
+    def __init__(self, peers, api_client, blockchain, mempool, validator):
+        super(FullNode, self).__init__(peers, api_client)
         mp.log_to_stderr()
         mp_logger = mp.get_logger()
         mp_logger.setLevel(logging.DEBUG)
         self.app = Bottle()
         self.app.merge(public_app)
         self.app.merge(permissioned_app)
-        self.blockchain = Blockchain()
-        self.mempool = Mempool()
-        self.validator = Validator()
+        self.blockchain = blockchain
+        self.mempool = mempool
+        self.validator = validator
 
     def start(self):
         logger.debug("queue process starting...")
@@ -95,7 +90,7 @@ class FullNode(NodeMixin):
         self.queue_process.terminate()
 
     def check_peers(self):
-        known_peers = self.find_known_peers()
+        known_peers = self.discover_peers()
         self.api_client.check_peers_full(self.HOST, known_peers)
         return
 
