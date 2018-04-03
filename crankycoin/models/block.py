@@ -97,12 +97,15 @@ class Block(object):
 
     @property
     def transactions(self):
-        return self._transactions
+        if len(self._transactions) <= 1:
+            return self._transactions
+        coinbase = self._transactions[0]
+        return sorted(self._transactions[1:], key=lambda x: x.hash).insert(0, coinbase)
 
     def _calculate_merkle_root(self):
         if len(self._transactions) < 1:
             raise InvalidTransactions(self._height, "Zero transactions in block. Coinbase transaction required")
-        merkle_base = [t.tx_hash for t in self._transactions]
+        merkle_base = [t.tx_hash for t in self.transactions]
         while len(merkle_base) > 1:
             temp_merkle_base = []
             for i in range(0, len(merkle_base), 2):

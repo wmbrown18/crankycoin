@@ -106,6 +106,7 @@ class FullNode(NodeMixin):
                     self.api_client.broadcast_block_header(block_header)
                 else:
                     # TODO: Block was mined by a (1st degree) peer.  Validate header
+
                     if valid:
                         # TODO: request transactions inv and missing transactions and add block
                         self.api_client.broadcast_block_inv([block_header.hash])
