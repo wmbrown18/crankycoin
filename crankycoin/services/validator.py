@@ -1,4 +1,4 @@
-from crankycoin import logger
+from crankycoin import logger, config
 from crankycoin.repository.blockchain import Blockchain
 from crankycoin.repository.mempool import Mempool
 from crankycoin.models.errors import InvalidHash, ChainContinuityError, InvalidTransactions, BlockchainException
@@ -37,6 +37,19 @@ class Validator(object):
         if reward_transaction.amount != reward_amount or reward_transaction.source != "0":
             raise InvalidTransactions(block.height, "Transactions not valid.  Incorrect block reward")
         return
+
+    def validate_block_header(self, block_header):
+        if block_header.version != config['network']['version']:
+            logger.warn('Incompatible version')
+            return False
+        previous_block = self.blockchain.get_block_header_by_hash(block_header.previous_hash)
+        if previous_block is None:
+            return None
+        previous_block_header, previous_block_branch, previous_block_height = previous_block
+        if self.blockchain.calculate_hash_difficulty(previous_block_height + 1) > block_header.hash
+            logger.warn('Invalid hash difficulty')
+            return False
+        return True
 
     def validate_block(self, block):
         try:

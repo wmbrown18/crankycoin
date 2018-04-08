@@ -2,7 +2,7 @@ import logging
 import multiprocessing as mp
 from bottle import Bottle
 
-from crankycoin.models.block import Block
+from crankycoin.models.block import Block, BlockHeader
 from crankycoin.models.transaction import Transaction
 from crankycoin.models.enums import MessageType
 from crankycoin.services.queue import Queue
@@ -101,12 +101,12 @@ class FullNode(NodeMixin):
             msg_type = msg.get('type')
             data = msg.get('data')
             if msg_type == MessageType.BLOCK_HEADER:
-                block_header = Block.from_dict(data)
+                block_header = BlockHeader.from_dict(data)
                 if sender == self.HOST:
                     self.api_client.broadcast_block_header(block_header)
                 else:
-                    # TODO: Block was mined by a (1st degree) peer.  Validate header
-
+                    # Block was mined by a (1st degree) peer.  Validate header
+                    valid = self.validator.validate_block_header(block_header)
                     if valid:
                         # TODO: request transactions inv and missing transactions and add block
                         self.api_client.broadcast_block_inv([block_header.hash])

@@ -102,3 +102,16 @@ Attack Vectors
 Asset Transactions
 ==================
 Transactions include an asset type.  The default asset type is the sha256 sum of the string "Cranky Coin".  New assets can be registered by submitting a transaction with a registration type enumerated value.  Hereinafter, the registrant owns that asset and may transact that asset though fees remain in the native asset type - Cranky Coin.
+
+
+
+c' = original longest chain
+c" = new longest chain
+if height[c"] > height[c']
+	then n <- height[c"]
+		b <- branch[c"[n]]
+		while c"[n] <> 0
+			do if c'[n] <> NIL
+					then branch[c'[n]] <- b
+				branch[c"[n]] <- 0
+				n <- n - 1
