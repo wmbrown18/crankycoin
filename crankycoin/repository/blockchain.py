@@ -153,7 +153,7 @@ class Blockchain(object):
         return transactions
 
     def get_transaction_hashes_by_block_hash(self, block_hash):
-        sql = "SELECT hash FROM transactions WHERE blockHash='{}' ORDER BY hash ASC".format(block_hash)
+        sql = "SELECT hash FROM transactions WHERE blockHash='{}' ORDER BY type, hash ASC".format(block_hash)
         with sqlite3.connect(self.CHAIN_DB) as conn:
             conn.row_factory = lambda cursor, row: row[0]
             cursor = conn.cursor()

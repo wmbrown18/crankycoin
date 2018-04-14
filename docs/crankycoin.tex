@@ -73,7 +73,7 @@ When an alternate branch outpaces the primary branch, the node must restructure 
 This results in a restructured chain without exceeding a \textit{O(n)} complexity and without needing to validate the blocks and/or the transactions contained within.  The diagram illustrates a highly unlikely scenario where the node has received 6 distinct valid blocks of the same height.  We witness that branch 3 has outpaced the previous dominant branch 0 and must now be promoted to the authoritative branch.  Notice \textit{B} was preserved throughout the swap process.  The two chains, which spanned across branches 0, 1, and 2 are now fully contained within 0 and 3.  This protocol allows the chain to remain thin and allow for easier pruning.
 \includegraphics[width=1.00\linewidth]{branch_restructure3.png}
 \subsection{Dynamic Hash Difficulty}
-Hash difficulty adjustment is performed based on a simple moving average similar to \textit{Bitcoin Cash's difficulty algorithm}\cite{website:bchda}.  The network is configured so that target time \textit{v} is 10 minutes per block, difficulty adjustment span \textit{s} is 500, timestamp sample size \textit{n} is 2, and minimum hash difficulty \textit{m} is 1.  \textit{t} denotes the block's timestamp at height \textit{h}. \textit{d} denotes the present difficulty:
+Hash difficulty adjustment is performed based on a simple moving average.  The network is configured so that target time \textit{v} is 10 minutes per block, difficulty adjustment span \textit{s} is 500, timestamp sample size \textit{n} is 2, and minimum hash difficulty \textit{m} is 1.  \textit{t} denotes the block's timestamp at height \textit{h}. \textit{d} denotes the present difficulty:
 \begin{align*}
 &Let\ {f} : (t,h)\mapsto \frac{t_h + t_{h-1} + \dots + t_{h-n}}{n+1} \\\\
 &Let\ \Delta{t} = {f(t_h,h)} - {f(t_{h-s},h-s)}\\
@@ -128,7 +128,7 @@ In essence, the system designed around decentralization can be inadvertently cen
 \item no censorship
 \end{itemize}
 \subsubsection{Proposal}
-The author hereby proposes a novel system of mining blocks, known as \textit{Proof of Collaboration}.  The system adheres to the following protocol:
+The author proposes an alternative system to \textit{Proof-of-Work} known as \textit{Proof-of-Collaboration}.  The system adheres to the following protocol:
 \paragraph{On-chain node registry}
 \begin{enumerate}[noitemsep,nolistsep]
 \item New node registers by transacting a fee to a collaborator registration address and \textit{REGISTRATION} transaction type. The transaction would include the host's address in the metadata.

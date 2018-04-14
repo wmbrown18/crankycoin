@@ -193,7 +193,7 @@ class ApiClient(object):
             self.peers.record_downtime(node)
         return None
 
-    def request_transactions_index(self, node, port, block_hash):
+    def request_transactions_inv(self, node, port, block_hash):
         # Request a list of transaction hashes that belong to a block hash. Used when recreating a block from a
         # block header
         url = self.TRANSACTIONS_INV_URL.format(node, port, block_hash)

@@ -110,7 +110,7 @@ class Block(object):
         if len(self._transactions) <= 1:
             return self._transactions
         coinbase = self._transactions[0]
-        return sorted(self._transactions[1:], key=lambda x: x.hash).insert(0, coinbase)
+        return sorted(self._transactions[1:], key=lambda x: x.tx_hash).insert(0, coinbase)
 
     def _calculate_merkle_root(self):
         if len(self._transactions) < 1:

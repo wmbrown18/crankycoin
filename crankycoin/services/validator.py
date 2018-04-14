@@ -1,3 +1,5 @@
+import hashlib
+
 from crankycoin import logger, config
 from crankycoin.repository.blockchain import Blockchain
 from crankycoin.repository.mempool import Mempool
@@ -38,18 +40,24 @@ class Validator(object):
             raise InvalidTransactions(block.height, "Transactions not valid.  Incorrect block reward")
         return
 
-    def validate_block_header(self, block_header):
+    def validate_block_header(self, block_header, transactions_inv):
+        if self.blockchain.get_block_header_by_hash(block_header.hash):
+            logger.warn('Block Header already exists')
+            return False
         if block_header.version != config['network']['version']:
             logger.warn('Incompatible version')
+            return False
+        if block_header.merkle_root != self.calculate_merkle_root(transactions_inv):
+            logger.warn('Invalid merkle root')
             return False
         previous_block = self.blockchain.get_block_header_by_hash(block_header.previous_hash)
         if previous_block is None:
             return None
         previous_block_header, previous_block_branch, previous_block_height = previous_block
-        if self.blockchain.calculate_hash_difficulty(previous_block_height + 1) > block_header.hash
+        if self.blockchain.calculate_hash_difficulty(previous_block_height + 1) > block_header.hash_difficulty:
             logger.warn('Invalid hash difficulty')
             return False
-        return True
+        return previous_block_height + 1
 
     def validate_block(self, block):
         try:
@@ -66,7 +74,7 @@ class Validator(object):
 
     def validate_transaction(self, transaction):
         if self.blockchain.find_duplicate_transactions(transaction.tx_hash):
-            logger.warn('Transaction not valid.  Double-spend detected: {}'.format(transaction.tx_hash))
+            logger.warn('Transaction not valid.  Double-spend prevented: {}'.format(transaction.tx_hash))
             return False
         if not transaction.verify():
             logger.warn('Transaction not valid.  Invalid transaction signature: {}'.format(transaction.tx_hash))
@@ -76,6 +84,25 @@ class Validator(object):
             logger.warn('Transaction not valid.  Insufficient funds: {}'.format(transaction.tx_hash))
             return False
         return True
+
+    @staticmethod
+    def calculate_merkle_root(tx_hashes):
+        coinbase_hash = tx_hashes[0]
+        merkle_base = sorted(tx_hashes[1:])
+        merkle_base.insert(0, coinbase_hash)
+        while len(merkle_base) > 1:
+            temp_merkle_base = []
+            for i in range(0, len(merkle_base), 2):
+                if i == len(merkle_base) - 1:
+                    temp_merkle_base.append(
+                        hashlib.sha256(merkle_base[i]).hexdigest()
+                    )
+                else:
+                    temp_merkle_base.append(
+                        hashlib.sha256(merkle_base[i] + merkle_base[i+1]).hexdigest()
+                    )
+            merkle_base = temp_merkle_base
+        return merkle_base[0]
 
 
 if __name__ == "__main__":

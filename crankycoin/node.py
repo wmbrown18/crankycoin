@@ -4,7 +4,7 @@ from bottle import Bottle
 
 from crankycoin.models.block import Block, BlockHeader
 from crankycoin.models.transaction import Transaction
-from crankycoin.models.enums import MessageType
+from crankycoin.models.enums import MessageType, TransactionType
 from crankycoin.services.queue import Queue
 from crankycoin.routes.permissioned import permissioned_app
 from crankycoin.routes.public import public_app
@@ -105,11 +105,7 @@ class FullNode(NodeMixin):
                 if sender == self.HOST:
                     self.api_client.broadcast_block_header(block_header)
                 else:
-                    # Block was mined by a (1st degree) peer.  Validate header
-                    valid = self.validator.validate_block_header(block_header)
-                    if valid:
-                        # TODO: request transactions inv and missing transactions and add block
-                        self.api_client.broadcast_block_inv([block_header.hash])
+                    self.__process_block_header(block_header, sender)
                 continue
             elif msg_type == MessageType.UNCONFIRMED_TRANSACTION:
                 unconfirmed_transaction = Transaction.from_dict(data)
@@ -161,6 +157,45 @@ class FullNode(NodeMixin):
             else:
                 logger.warn("Encountered unknown message type %s from %s", msg_type, sender)
                 pass
+
+    def __process_block_header(self, block_header, sender):
+        # Block was mined by a (1st degree) peer.  Request Transactions inv and Validate header
+        transactions_inv = self.api_client.request_transactions_inv(sender, self.FULL_NODE_PORT, block_header.hash)
+        valid_block_height = self.validator.validate_block_header(block_header, transactions_inv)
+        if valid_block_height:
+            # request transactions inv and missing transactions and add block
+            transactions_inv = self.api_client.request_transactions_inv(sender, self.FULL_NODE_PORT, block_header.hash)
+            # TODO: calculate block header hash from transactions_inv and validate it is correct
+            missing_transactions_inv = []
+            block_transactions = []
+            for tx_hash in transactions_inv:
+                if self.blockchain.find_duplicate_transactions(tx_hash):
+                    logger.warn('Transaction not valid.  Double-spend prevented: {}'.format(tx_hash))
+                    return False
+                transaction = self.mempool.get_unconfirmed_transaction(tx_hash)
+                if transaction is None:
+                    missing_transactions_inv.append(tx_hash)
+                else:
+                    block_transactions.append(transaction)
+            for tx_hash in missing_transactions_inv:
+                transaction = self.api_client.request_transaction(sender, self.FULL_NODE_PORT, tx_hash)
+                if transaction.tx_type == TransactionType.COINBASE:
+                    block_transactions.insert(0, transaction)
+                else:
+                    if not self.validator.validate_transaction(transaction):
+                        return False
+                    block_transactions.append(transaction)
+            block = Block(
+                valid_block_height,
+                block_transactions,
+                block_header.previous_hash,
+                timestamp=block_header.timestamp,
+                nonce=block_header.nonce)
+            if self.blockchain.add_block(block):
+                self.api_client.broadcast_block_inv([block_header.hash])
+        elif valid_block_height is None:
+            # TODO: synchronize with sender
+            self.api_client.request_blocks_inv(sender, self.FULL_NODE_PORT, )
 
     # def check_peers(self):
     #     if self.peers.get_peers_count() < self.MIN_PEERS:
