@@ -30,15 +30,20 @@ class Validator(object):
         return
 
     def check_block_reward(self, block):
-        # TODO: Deprecate?
         reward_amount = self.blockchain.get_reward(block.height)
         for transaction in block.transactions[1:0]:
+            if transaction.tx_type == 0:
+                logger.warn("Block not valid.  Multiple coinbases detected")
+                return False
             reward_amount += transaction.fee
         # first transaction is coinbase
         reward_transaction = block.transactions[0]
+        if reward_transaction.tx_type != 0:
+            logger.warn("Block not valid.  Missing coinbase")
+            return False
         if reward_transaction.amount != reward_amount or reward_transaction.source != "0":
-            raise InvalidTransactions(block.height, "Transactions not valid.  Incorrect block reward")
-        return
+            return False
+        return True
 
     def validate_block_header(self, block_header, transactions_inv):
         if self.blockchain.get_block_header_by_hash(block_header.hash):
@@ -59,20 +64,45 @@ class Validator(object):
             return False
         return previous_block_height + 1
 
-    def validate_block(self, block):
-        try:
-            # current hash of data is correct and hash satisfies pattern
-            self.check_hash_and_hash_pattern(block)
-            # block height is correct and previous hash is correct
-            self.check_height_and_previous_hash(block)
-            # block reward is correct based on block height and halving formula
-            self.check_block_reward(block)
-        except BlockchainException as bce:
-            logger.warning("Validation Error (block id: %s): %s", block.height, bce.message)
+    def validate_block(self, block, merkle_root):
+        if block.block_header.merkle_root != merkle_root:
+            logger.warn("invalid merkle root")
+            return False
+        if not self.check_block_reward(block):
+            logger.warn("Invalid block reward")
             return False
         return True
 
+    def validate_transactions_inv(self, transactions_inv):
+        """
+        Checks a list of transaction hashes, checks for double-spends and/or entries in the mempool
+        Returns a list of unknown transaction hashes
+
+        :param transactions_inv:
+        :return: block_transactions, missing_transactions_inv
+        :rtype: tuple(list, list)
+        """
+        missing_transactions_inv = []
+        block_transactions = []
+        for tx_hash in transactions_inv:
+            if self.blockchain.find_duplicate_transactions(tx_hash):
+                logger.warn('Transaction not valid.  Double-spend prevented: {}'.format(tx_hash))
+                return False
+            transaction = self.mempool.get_unconfirmed_transaction(tx_hash)
+            if transaction is None:
+                missing_transactions_inv.append(tx_hash)
+            else:
+                block_transactions.append(transaction)
+        return block_transactions, missing_transactions_inv
+
     def validate_transaction(self, transaction):
+        """
+        Validate a single transaction.  Check for double-spend, invalid signature, and insufficient funds
+
+        :param transaction:
+        :return: boolean
+        :rtype: boolean
+        """
         if self.blockchain.find_duplicate_transactions(transaction.tx_hash):
             logger.warn('Transaction not valid.  Double-spend prevented: {}'.format(transaction.tx_hash))
             return False

@@ -159,24 +159,18 @@ class FullNode(NodeMixin):
                 pass
 
     def __process_block_header(self, block_header, sender):
-        # Block was mined by a (1st degree) peer.  Request Transactions inv and Validate header
+        """
+        Block was mined by a (1st degree) peer.  Request transactions_inv and Validate header
+
+        :param block_header:
+        :param sender:
+        :return:
+        """
+        # request transactions inv and missing transactions and add block
         transactions_inv = self.api_client.request_transactions_inv(sender, self.FULL_NODE_PORT, block_header.hash)
         valid_block_height = self.validator.validate_block_header(block_header, transactions_inv)
         if valid_block_height:
-            # request transactions inv and missing transactions and add block
-            transactions_inv = self.api_client.request_transactions_inv(sender, self.FULL_NODE_PORT, block_header.hash)
-            # TODO: calculate block header hash from transactions_inv and validate it is correct
-            missing_transactions_inv = []
-            block_transactions = []
-            for tx_hash in transactions_inv:
-                if self.blockchain.find_duplicate_transactions(tx_hash):
-                    logger.warn('Transaction not valid.  Double-spend prevented: {}'.format(tx_hash))
-                    return False
-                transaction = self.mempool.get_unconfirmed_transaction(tx_hash)
-                if transaction is None:
-                    missing_transactions_inv.append(tx_hash)
-                else:
-                    block_transactions.append(transaction)
+            block_transactions, missing_transactions_inv = self.validator.validate_transactions_inv(transactions_inv)
             for tx_hash in missing_transactions_inv:
                 transaction = self.api_client.request_transaction(sender, self.FULL_NODE_PORT, tx_hash)
                 if transaction.tx_type == TransactionType.COINBASE:
@@ -191,7 +185,7 @@ class FullNode(NodeMixin):
                 block_header.previous_hash,
                 timestamp=block_header.timestamp,
                 nonce=block_header.nonce)
-            if self.blockchain.add_block(block):
+            if self.validator.validate_block(block, block_header.merkle_root) and self.blockchain.add_block(block):
                 self.api_client.broadcast_block_inv([block_header.hash])
         elif valid_block_height is None:
             # TODO: synchronize with sender
